@@ -117,7 +117,7 @@ function Section({ section }: { section: SettingsSection }) {
             <ToggleRow title="Lire les réponses à voix haute" value={settings.agentSpeaks} onChange={(v) => set({ agentSpeaks: v })} />
           </SettingsGroup>
           <SettingsGroup>
-            <ActionRow title="Effacer la conversation" destructive onPress={() => conversation.reset()} />
+            <ActionRow title="Effacer toutes les conversations" destructive onPress={() => conversation.reset()} />
           </SettingsGroup>
         </>
       );

@@ -1,36 +1,79 @@
 import { useEffect, useRef, useState, type ComponentRef } from "react";
-import { Animated, Easing, Image, KeyboardAvoidingView, Pressable, ScrollView, TextInput, View } from "react-native";
+import { Alert, Animated, Easing, Image, KeyboardAvoidingView, Pressable, ScrollView, Share, TextInput, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArrowUp, Camera, Check, CircleAlert, FileText, ImagePlus, Paperclip, Plus, ShieldCheck, SquarePen, Volume2, Wallet, X, type LucideIcon } from "lucide-react-native";
+import {
+  ArrowUp,
+  Cable,
+  Camera,
+  Check,
+  CircleAlert,
+  Copy,
+  FileText,
+  History,
+  ImagePlus,
+  Menu,
+  Plus,
+  RefreshCw,
+  ShieldCheck,
+  SlidersHorizontal,
+  Square,
+  SquarePen,
+  Trash2,
+  Volume2,
+  Wallet,
+  Workflow,
+  X,
+  type LucideIcon,
+} from "lucide-react-native";
 import { color, fontFamily, radius } from "@keyo/tokens";
 import { pickImages, pickPdf, type Attachment } from "@/agent/attachments";
 import { conversation, speak, useConversation, type AttachmentRef, type FeedItem } from "@/agent/conversation";
+import { autonomousApi, type ConnectorInfo } from "@/autonomous/api";
 import { KeyoMark } from "@/brand/Logo";
-import { useUser } from "@/data/session";
-import { Sheet, TAB_BAR_CLEARANCE, Text } from "@/ui";
+import { sinceLabel } from "@/data/period";
+import { session, useSettings, useUser } from "@/data/session";
+import { Markdown, Sheet, Status, TAB_BAR_CLEARANCE, Text, ToggleRow } from "@/ui";
 
 const SUGGESTIONS: { icon: LucideIcon; title: string; prompt: string }[] = [
+  { icon: Workflow, title: "Qu'avez-vous fait en mon absence ?", prompt: "Qu'as-tu fait en mon absence, et qu'est-ce qui attend mon accord ?" },
   { icon: ShieldCheck, title: "Tout est en ordre ?", prompt: "Est-ce que tout est en ordre ?" },
-  { icon: FileText, title: "Rapport du mois", prompt: "Fais-moi le rapport du mois" },
   { icon: Wallet, title: "Loyers en retard", prompt: "Qui paie en retard ?" },
+  { icon: FileText, title: "Rapport du mois", prompt: "Fais-moi le rapport du mois" },
 ];
 
-/** Agent Keyo : conversation épurée, écrite ou dictée, avec envoi de photos et de PDF. */
+/** Copier passe par la feuille de partage du système, qui propose « Copier ». */
+const share = (text: string) => void Share.share({ message: text }).catch(() => undefined);
+const clean = (t: string) =>
+  t
+    .split("\n")
+    .filter((l) => !/^sources\s*:/i.test(l.trim()))
+    .join("\n")
+    .trim();
+
+/**
+ * Agent Keyo : conversation épurée, écrite ou dictée (dictée du clavier), avec photos et PDF,
+ * historique des conversations, arrêt, régénération et modification d'un message.
+ * Le menu « + » regroupe les pièces jointes, les connecteurs et les réglages rapides de l'agent.
+ */
 export default function Agent() {
   const insets = useSafeAreaInsets();
   const user = useUser();
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
+  const field = useRef<ComponentRef<typeof TextInput>>(null);
   const c = useConversation();
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<Attachment[]>([]);
-  const [attachOpen, setAttachOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [userMenu, setUserMenu] = useState<Extract<FeedItem, { kind: "user" }>>();
   const params = useLocalSearchParams<{ prompt?: string; k?: string }>();
   const handled = useRef<string | undefined>(undefined);
   const waiting = c.feed.some((f) => f.kind === "proposal" && f.status === "pending");
   const canSend = (input.trim().length > 0 || files.length > 0) && !c.busy && !waiting;
+  const lastAgent = [...c.feed].reverse().find((f) => f.kind === "agent")?.id;
 
-  // Demande envoyée depuis un autre écran (Contrôle de gestion, Aide).
+  // Demande envoyée depuis un autre écran (Contrôle de gestion, Aide, Évaluation).
   useEffect(() => {
     if (params.prompt && params.k && handled.current !== params.k) {
       handled.current = params.k;
@@ -44,8 +87,7 @@ export default function Agent() {
   }, [c.feed.length, c.busy]);
 
   const send = (text: string) => {
-    if (!canSend && !text) return;
-    if (c.busy || waiting) return;
+    if (c.busy || waiting || (!text.trim() && !files.length)) return;
     const toSend = files;
     setInput("");
     setFiles([]);
@@ -53,53 +95,67 @@ export default function Agent() {
   };
 
   const attach = async (source: "camera" | "library" | "pdf") => {
-    setAttachOpen(false);
+    setToolsOpen(false);
     // Laisser la feuille se fermer avant d'ouvrir le sélecteur du système.
     await new Promise((r) => setTimeout(r, 350));
     const picked = source === "pdf" ? await pickPdf() : await pickImages(source === "camera");
     setFiles((f) => [...f, ...picked].slice(0, 4));
   };
 
+  const go = (href: string) => {
+    setToolsOpen(false);
+    setHistoryOpen(false);
+    router.push(href as never);
+  };
+
+  const edit = (item: Extract<FeedItem, { kind: "user" }>) => {
+    setUserMenu(undefined);
+    const text = conversation.editFrom(item.id);
+    if (text !== null) {
+      setInput(text);
+      setTimeout(() => field.current?.focus(), 300);
+    }
+  };
+
   const empty = c.feed.length === 0;
+  const status = c.mode === "claude" ? "En ligne" : c.mode === "demo" ? (c.offline ? "Hors ligne, mode démo" : "Mode démo") : "Prêt";
 
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: color.surface }} behavior="padding">
-      {/* En-tête discret */}
-      <View style={{ paddingTop: insets.top + 6, paddingHorizontal: 16, paddingBottom: 8, flexDirection: "row", alignItems: "center", gap: 10 }}>
-        <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 10 }}>
-          <KeyoMark size={30} />
-          <View>
-            <Text variant="rowTitle" style={{ fontFamily: fontFamily.extrabold }} accessibilityRole="header">
-              Agent Keyo
+      {/* En-tête : historique, nom et état, nouvelle conversation */}
+      <View style={{ paddingTop: insets.top + 6, paddingHorizontal: 12, paddingBottom: 6, flexDirection: "row", alignItems: "center", gap: 4 }}>
+        <HeaderIcon icon={Menu} label="Conversations" onPress={() => setHistoryOpen(true)} />
+        <View style={{ flex: 1, alignItems: "center" }}>
+          <Text variant="rowTitle" style={{ fontFamily: fontFamily.extrabold }} accessibilityRole="header" numberOfLines={1}>
+            {empty ? "Agent Keyo" : c.title}
+          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+            <View style={{ width: 7, height: 7, borderRadius: 7, backgroundColor: c.mode === "claude" ? color.dotPaid : c.mode === "demo" ? color.dotLate : color.track }} />
+            <Text variant="caption" tone="inkMuted">
+              {status}
             </Text>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-              <View style={{ width: 7, height: 7, borderRadius: 7, backgroundColor: c.mode === "claude" ? color.dotPaid : c.mode === "demo" ? color.dotLate : color.track }} />
-              <Text variant="caption" tone="inkMuted">
-                {c.mode === "claude" ? "En ligne" : c.mode === "demo" ? (c.offline ? "Hors ligne, mode démo" : "Mode démo") : "Prêt"}
-              </Text>
-            </View>
           </View>
         </View>
-        <HeaderIcon icon={ShieldCheck} label="Contrôle de gestion" onPress={() => router.push("/controle")} />
-        <HeaderIcon icon={SquarePen} label="Nouvelle conversation" onPress={() => conversation.reset()} disabled={empty} />
+        <HeaderIcon icon={SquarePen} label="Nouvelle conversation" onPress={() => conversation.newThread()} disabled={empty || c.busy} />
       </View>
 
       <ScrollView ref={scroll} keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 20, paddingBottom: 16 }}>
         {empty ? (
           <View style={{ flex: 1, justifyContent: "center", paddingVertical: 24 }}>
-            <Text variant="title" style={{ fontSize: 28, lineHeight: 34 }}>
+            <KeyoMark size={40} />
+            <Text variant="title" style={{ fontSize: 28, lineHeight: 34, marginTop: 18 }}>
               Bonjour {user.firstName},
             </Text>
             <Text variant="title" tone="inkMuted" style={{ fontSize: 28, lineHeight: 34 }}>
               que puis-je faire pour vous ?
             </Text>
-            <View style={{ marginTop: 28, gap: 10 }}>
+            <View style={{ marginTop: 28, gap: 8 }}>
               {SUGGESTIONS.map((s) => (
                 <Pressable
                   key={s.title}
                   onPress={() => conversation.send(s.prompt)}
                   accessibilityRole="button"
-                  style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: 20, backgroundColor: color.surfaceRaised, opacity: pressed ? 0.7 : 1 })}
+                  style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 13, paddingHorizontal: 14, borderRadius: 20, backgroundColor: color.surfaceRaised, opacity: pressed ? 0.7 : 1 })}
                 >
                   <s.icon size={20} strokeWidth={1.8} color={color.mintDeep} />
                   <Text variant="rowTitle" style={{ flex: 1 }}>
@@ -107,23 +163,10 @@ export default function Agent() {
                   </Text>
                 </Pressable>
               ))}
-              <Pressable
-                onPress={() => setAttachOpen(true)}
-                accessibilityRole="button"
-                style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: 20, backgroundColor: color.surfaceRaised, opacity: pressed ? 0.7 : 1 })}
-              >
-                <Paperclip size={20} strokeWidth={1.8} color={color.mintDeep} />
-                <View style={{ flex: 1 }}>
-                  <Text variant="rowTitle">Envoyer un document</Text>
-                  <Text variant="caption" tone="inkMuted">
-                    Facture, bail, assurance : je le lis et je le classe.
-                  </Text>
-                </View>
-              </Pressable>
             </View>
           </View>
         ) : (
-          c.feed.map((f, i) => <Item key={f.id} item={f} busy={c.busy} prev={c.feed[i - 1]} />)
+          c.feed.map((f, i) => <Item key={f.id} item={f} busy={c.busy} prev={c.feed[i - 1]} isLastAgent={f.id === lastAgent} onUserMenu={setUserMenu} />)
         )}
         {c.busy && <Typing />}
       </ScrollView>
@@ -157,6 +200,7 @@ export default function Agent() {
             </ScrollView>
           )}
           <TextInput
+            ref={field}
             value={input}
             onChangeText={setInput}
             placeholder={waiting ? "En attente de votre accord" : "Écrivez ou dictez"}
@@ -167,34 +211,219 @@ export default function Agent() {
           />
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
             <Pressable
-              onPress={() => setAttachOpen(true)}
+              onPress={() => setToolsOpen(true)}
               disabled={waiting}
               accessibilityRole="button"
-              accessibilityLabel="Joindre une photo ou un document"
+              accessibilityLabel="Joindre, connecteurs et réglages"
               hitSlop={6}
               style={({ pressed }) => ({ width: 38, height: 38, borderRadius: 38, borderWidth: 1, borderColor: color.line, alignItems: "center", justifyContent: "center", opacity: waiting ? 0.4 : pressed ? 0.6 : 1 })}
             >
               <Plus size={20} strokeWidth={1.8} color={color.ink} />
             </Pressable>
-            <Pressable
-              onPress={() => send(input)}
-              disabled={!canSend}
-              accessibilityRole="button"
-              accessibilityLabel="Envoyer"
-              style={{ width: 38, height: 38, borderRadius: 38, alignItems: "center", justifyContent: "center", backgroundColor: canSend ? color.mint : color.surfaceSoft }}
-            >
-              <ArrowUp size={20} strokeWidth={2} color={canSend ? color.onMint : color.inkMuted} />
-            </Pressable>
+            {c.busy ? (
+              <Pressable
+                onPress={() => conversation.stop()}
+                accessibilityRole="button"
+                accessibilityLabel="Arrêter la réponse"
+                style={{ width: 38, height: 38, borderRadius: 38, alignItems: "center", justifyContent: "center", backgroundColor: color.night }}
+              >
+                <Square size={14} strokeWidth={2} color={color.onNight} fill={color.onNight} />
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={() => send(input)}
+                disabled={!canSend}
+                accessibilityRole="button"
+                accessibilityLabel="Envoyer"
+                style={{ width: 38, height: 38, borderRadius: 38, alignItems: "center", justifyContent: "center", backgroundColor: canSend ? color.mint : color.surfaceSoft }}
+              >
+                <ArrowUp size={20} strokeWidth={2} color={canSend ? color.onMint : color.inkMuted} />
+              </Pressable>
+            )}
           </View>
         </View>
       </View>
 
-      <Sheet visible={attachOpen} onClose={() => setAttachOpen(false)} title="Joindre">
-        <AttachRow icon={Camera} title="Prendre une photo" subtitle="Facture, compteur, dégât" onPress={() => attach("camera")} />
-        <AttachRow icon={ImagePlus} title="Choisir des photos" subtitle="Jusqu'à 4 à la fois" onPress={() => attach("library")} />
-        <AttachRow icon={FileText} title="Choisir un PDF" subtitle="Bail, attestation, avis d'imposition" onPress={() => attach("pdf")} />
+      <ToolsSheet visible={toolsOpen} onClose={() => setToolsOpen(false)} onAttach={attach} onGo={go} />
+      <HistorySheet visible={historyOpen} onClose={() => setHistoryOpen(false)} onGo={go} />
+
+      <Sheet visible={Boolean(userMenu)} onClose={() => setUserMenu(undefined)} title="Votre message">
+        {userMenu && (
+          <>
+            <MenuRow icon={SquarePen} title="Modifier et renvoyer" subtitle="La conversation reprend à ce message" onPress={() => edit(userMenu)} disabled={c.busy} />
+            <MenuRow
+              icon={Copy}
+              title="Copier ou partager"
+              onPress={() => {
+                setUserMenu(undefined);
+                share(userMenu.text);
+              }}
+            />
+          </>
+        )}
       </Sheet>
     </KeyboardAvoidingView>
+  );
+}
+
+/** Menu « + » : joindre, connecteurs de l'agent, réglages rapides. */
+function ToolsSheet({ visible, onClose, onAttach, onGo }: { visible: boolean; onClose: () => void; onAttach: (s: "camera" | "library" | "pdf") => void; onGo: (href: string) => void }) {
+  const settings = useSettings();
+  const [connectors, setConnectors] = useState<ConnectorInfo[] | null>(null);
+  useEffect(() => {
+    if (!visible) return;
+    autonomousApi
+      .connectors()
+      .then(setConnectors)
+      .catch(() => setConnectors([]));
+  }, [visible]);
+  const shown = (connectors ?? []).filter((x) => x.channel !== "APP");
+
+  return (
+    <Sheet visible={visible} onClose={onClose}>
+      <ScrollView style={{ maxHeight: 560 }} showsVerticalScrollIndicator={false}>
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <Tile icon={Camera} label="Photo" onPress={() => onAttach("camera")} />
+          <Tile icon={ImagePlus} label="Photos" onPress={() => onAttach("library")} />
+          <Tile icon={FileText} label="PDF" onPress={() => onAttach("pdf")} />
+        </View>
+
+        <SheetLabel>Connecteurs</SheetLabel>
+        <View style={{ borderRadius: radius.card, backgroundColor: color.surfaceRaised, paddingHorizontal: 14 }}>
+          {connectors === null && (
+            <Text variant="rowSubtitle" tone="inkMuted" style={{ paddingVertical: 14 }}>
+              Chargement…
+            </Text>
+          )}
+          {connectors !== null && shown.length === 0 && (
+            <Text variant="rowSubtitle" tone="inkMuted" style={{ paddingVertical: 14 }}>
+              Serveur Keyo injoignable : les connecteurs ne sont pas disponibles.
+            </Text>
+          )}
+          {shown.map((x, i) => (
+            <View key={x.channel} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 12, borderTopWidth: i ? 1 : 0, borderTopColor: color.line }}>
+              <Text variant="rowTitle" style={{ flex: 1 }}>
+                {x.label.replace(" (simulé)", "")}
+              </Text>
+              {x.simulated ? <Status tone="neutral" label="Simulé" /> : <Status tone="paid" label="Connecté" />}
+            </View>
+          ))}
+        </View>
+        <MenuRow icon={Cable} title="Gérer les connexions" onPress={() => onGo("/agent/connexions")} />
+
+        <SheetLabel>Agent</SheetLabel>
+        <View style={{ borderRadius: radius.card, backgroundColor: color.surfaceRaised, paddingHorizontal: 14 }}>
+          <ToggleRow
+            title="Accord à chaque action"
+            subtitle={settings.agentConfirm === "ALWAYS" ? "Vous validez toute modification" : "Seulement l'argent, les occupants et les messages"}
+            value={settings.agentConfirm === "ALWAYS"}
+            onChange={(v) => session.updateSettings({ agentConfirm: v ? "ALWAYS" : "RISKY" })}
+          />
+          <View style={{ height: 1, backgroundColor: color.line }} />
+          <ToggleRow title="Lire les réponses à voix haute" value={settings.agentSpeaks} onChange={(v) => session.updateSettings({ agentSpeaks: v })} />
+        </View>
+        <MenuRow icon={SlidersHorizontal} title="Autonomie en votre absence" onPress={() => onGo("/agent/autonomie")} />
+        <MenuRow icon={Workflow} title="Ce que Keyo a fait" onPress={() => onGo("/agent")} />
+      </ScrollView>
+    </Sheet>
+  );
+}
+
+/** Historique : la conversation ouverte puis les précédentes. Appui long pour supprimer. */
+function HistorySheet({ visible, onClose, onGo }: { visible: boolean; onClose: () => void; onGo: (href: string) => void }) {
+  const c = useConversation();
+  const threads = [...(c.feed.length ? [{ id: c.id, title: c.title, updatedAt: c.updatedAt }] : []), ...c.archive];
+  const remove = (id: string, title: string) =>
+    Alert.alert("Supprimer la conversation ?", title, [
+      { text: "Annuler", style: "cancel" },
+      { text: "Supprimer", style: "destructive", onPress: () => conversation.deleteThread(id) },
+    ]);
+
+  return (
+    <Sheet visible={visible} onClose={onClose} title="Conversations">
+      <MenuRow
+        icon={SquarePen}
+        title="Nouvelle conversation"
+        onPress={() => {
+          conversation.newThread();
+          onClose();
+        }}
+        disabled={c.busy || !c.feed.length}
+      />
+      <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
+        {threads.length === 0 && (
+          <Text variant="rowSubtitle" tone="inkMuted" style={{ paddingVertical: 14 }}>
+            Vos conversations apparaîtront ici.
+          </Text>
+        )}
+        {threads.map((t) => {
+          const active = t.id === c.id;
+          return (
+            <Pressable
+              key={t.id}
+              onPress={() => {
+                conversation.openThread(t.id);
+                onClose();
+              }}
+              onLongPress={() => remove(t.id, t.title)}
+              accessibilityRole="button"
+              accessibilityHint="Appui long pour supprimer"
+              style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 12, borderRadius: 16, backgroundColor: active ? color.surfaceRaised : "transparent", opacity: pressed ? 0.6 : 1 })}
+            >
+              <View style={{ flex: 1 }}>
+                <Text variant="rowTitle" numberOfLines={1}>
+                  {t.title}
+                </Text>
+                <Text variant="caption" tone="inkMuted">
+                  {active ? "Ouverte" : sinceLabel(t.updatedAt)}
+                </Text>
+              </View>
+              <Pressable onPress={() => remove(t.id, t.title)} hitSlop={10} accessibilityLabel={`Supprimer ${t.title}`}>
+                <Trash2 size={18} strokeWidth={1.8} color={color.inkMuted} />
+              </Pressable>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+      <MenuRow icon={History} title="Ce que Keyo a fait en votre absence" onPress={() => onGo("/agent")} />
+    </Sheet>
+  );
+}
+
+function SheetLabel({ children }: { children: string }) {
+  return (
+    <Text variant="caption" tone="inkMuted" style={{ marginTop: 20, marginBottom: 8, marginLeft: 4, textTransform: "uppercase", letterSpacing: 0.8, fontFamily: fontFamily.bold }}>
+      {children}
+    </Text>
+  );
+}
+
+function Tile({ icon: Icon, label, onPress }: { icon: LucideIcon; label: string; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      style={({ pressed }) => ({ flex: 1, height: 84, borderRadius: 20, backgroundColor: color.surfaceRaised, alignItems: "center", justifyContent: "center", gap: 6, opacity: pressed ? 0.6 : 1 })}
+    >
+      <Icon size={24} strokeWidth={1.8} color={color.mintDeep} />
+      <Text variant="caption">{label}</Text>
+    </Pressable>
+  );
+}
+
+function MenuRow({ icon: Icon, title, subtitle, onPress, disabled }: { icon: LucideIcon; title: string; subtitle?: string; onPress: () => void; disabled?: boolean }) {
+  return (
+    <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button" style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 12, paddingHorizontal: 4, opacity: disabled ? 0.4 : pressed ? 0.6 : 1 })}>
+      <Icon size={22} strokeWidth={1.8} color={color.ink} />
+      <View style={{ flex: 1 }}>
+        <Text variant="rowTitle">{title}</Text>
+        {subtitle ? (
+          <Text variant="caption" tone="inkMuted">
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
+    </Pressable>
   );
 }
 
@@ -202,22 +431,6 @@ function HeaderIcon({ icon: Icon, label, onPress, disabled }: { icon: LucideIcon
   return (
     <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel={label} hitSlop={6} style={({ pressed }) => ({ width: 40, height: 40, borderRadius: 40, alignItems: "center", justifyContent: "center", opacity: disabled ? 0.3 : pressed ? 0.5 : 1 })}>
       <Icon size={22} strokeWidth={1.8} color={color.ink} />
-    </Pressable>
-  );
-}
-
-function AttachRow({ icon: Icon, title, subtitle, onPress }: { icon: LucideIcon; title: string; subtitle: string; onPress: () => void }) {
-  return (
-    <Pressable onPress={onPress} accessibilityRole="button" style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 12, opacity: pressed ? 0.6 : 1 })}>
-      <View style={{ width: 44, height: 44, borderRadius: 44, backgroundColor: color.mintTint, alignItems: "center", justifyContent: "center" }}>
-        <Icon size={22} strokeWidth={1.8} color={color.mintDeep} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text variant="rowTitle">{title}</Text>
-        <Text variant="rowSubtitle" tone="inkMuted">
-          {subtitle}
-        </Text>
-      </View>
     </Pressable>
   );
 }
@@ -269,13 +482,31 @@ function Typing() {
   );
 }
 
-const clean = (t: string) => t.replace(/\*\*(.+?)\*\*/g, "$1").replace(/^#+\s*/gm, "");
+function ActionIcon({ icon: Icon, label, onPress, disabled }: { icon: LucideIcon; label: string; onPress: () => void; disabled?: boolean }) {
+  return (
+    <Pressable onPress={onPress} disabled={disabled} hitSlop={10} accessibilityRole="button" accessibilityLabel={label} style={({ pressed }) => ({ opacity: disabled ? 0.3 : pressed ? 0.5 : 1 })}>
+      <Icon size={18} strokeWidth={1.8} color={color.inkMuted} />
+    </Pressable>
+  );
+}
 
-function Item({ item, busy, prev }: { item: FeedItem; busy: boolean; prev?: FeedItem }) {
+function Item({
+  item,
+  busy,
+  prev,
+  isLastAgent,
+  onUserMenu,
+}: {
+  item: FeedItem;
+  busy: boolean;
+  prev?: FeedItem;
+  isLastAgent: boolean;
+  onUserMenu: (u: Extract<FeedItem, { kind: "user" }>) => void;
+}) {
   switch (item.kind) {
     case "user":
       return (
-        <View style={{ alignItems: "flex-end", marginTop: 22, gap: 6 }}>
+        <Pressable onLongPress={() => onUserMenu(item)} delayLongPress={300} style={{ alignItems: "flex-end", marginTop: 22, gap: 6 }} accessibilityHint="Appui long pour modifier ou copier">
           {item.attachments?.map((a) =>
             a.kind === "image" ? (
               <Image key={a.id} source={{ uri: a.uri }} style={{ width: 180, height: 180, borderRadius: 20, backgroundColor: color.surfaceSoft }} accessibilityLabel={a.name} />
@@ -290,20 +521,18 @@ function Item({ item, busy, prev }: { item: FeedItem; busy: boolean; prev?: Feed
               </Text>
             </View>
           ) : null}
-        </View>
+        </Pressable>
       );
     case "agent": {
-      const lines = clean(item.text).split("\n");
+      const lines = item.text.split("\n");
       const sources = lines.filter((l) => /^sources\s*:/i.test(l.trim())).join(" ");
-      const body = lines.filter((l) => !/^sources\s*:/i.test(l.trim())).join("\n").trim();
+      const body = clean(item.text);
       const grouped = prev?.kind === "agent" || prev?.kind === "activity" || prev?.kind === "proposal";
       return (
         <View style={{ marginTop: grouped ? 10 : 22, flexDirection: "row", gap: 10 }}>
           <View style={{ width: 24 }}>{!grouped && <KeyoMark size={24} />}</View>
           <View style={{ flex: 1, gap: 8 }}>
-            <Text variant="body" selectable style={{ lineHeight: 24 }}>
-              {body}
-            </Text>
+            <Markdown text={body} />
             {item.link && (
               <Pressable
                 onPress={() => router.push(item.link!.href as never)}
@@ -313,15 +542,15 @@ function Item({ item, busy, prev }: { item: FeedItem; busy: boolean; prev?: Feed
                 <Text variant="rowTitle">{item.link.label}</Text>
               </Pressable>
             )}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-              <Pressable onPress={() => speak(item.text)} hitSlop={10} accessibilityRole="button" accessibilityLabel="Lire à voix haute">
-                <Volume2 size={18} strokeWidth={1.8} color={color.inkMuted} />
-              </Pressable>
-              {sources ? (
-                <Text variant="caption" tone="inkMuted" style={{ flex: 1 }} numberOfLines={2}>
-                  {sources}
-                </Text>
-              ) : null}
+            {sources ? (
+              <Text variant="caption" tone="inkMuted" numberOfLines={2}>
+                {sources}
+              </Text>
+            ) : null}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 18, marginTop: 2 }}>
+              <ActionIcon icon={Copy} label="Copier ou partager" onPress={() => share(body)} />
+              <ActionIcon icon={Volume2} label="Lire à voix haute" onPress={() => speak(item.text)} />
+              {isLastAgent && <ActionIcon icon={RefreshCw} label="Régénérer la réponse" onPress={() => conversation.regenerate()} disabled={busy} />}
             </View>
           </View>
         </View>
@@ -331,9 +560,9 @@ function Item({ item, busy, prev }: { item: FeedItem; busy: boolean; prev?: Feed
       return (
         <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
           <View style={{ width: 24 }}>{prev?.kind !== "agent" && prev?.kind !== "activity" && <KeyoMark size={24} />}</View>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: color.surfaceRaised }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: color.surfaceRaised, maxWidth: "100%" }}>
             {item.ok ? <Check size={14} strokeWidth={2} color={color.mintDeep} /> : <CircleAlert size={14} strokeWidth={1.8} color={color.danger} />}
-            <Text variant="caption" tone="inkMuted">
+            <Text variant="caption" tone="inkMuted" numberOfLines={2} style={{ flexShrink: 1 }}>
               {item.label}
             </Text>
           </View>

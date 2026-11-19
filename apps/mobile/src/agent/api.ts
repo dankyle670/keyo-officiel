@@ -27,6 +27,8 @@ export class AgentUnavailable extends Error {}
 async function call<T>(path: string, init: RequestInit = {}, timeoutMs = 90_000): Promise<T> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  // Arrêt demandé par le propriétaire (bouton Arrêter du chat).
+  init.signal?.addEventListener("abort", () => ctrl.abort());
   try {
     const res = await fetch(`${apiBase()}${path}`, { ...init, signal: ctrl.signal, headers: { "content-type": "application/json" } });
     const body = await res.json().catch(() => ({}));
@@ -48,7 +50,8 @@ export async function agentMode(): Promise<{ mode: "claude" | "demo"; reachable:
   }
 }
 
-export const postTurn = (messages: ApiMessage[], context: TurnContext) => call<TurnResponse>("/agent/turn", { method: "POST", body: JSON.stringify({ messages, context }) });
+export const postTurn = (messages: ApiMessage[], context: TurnContext, signal?: AbortSignal) =>
+  call<TurnResponse>("/agent/turn", { method: "POST", body: JSON.stringify({ messages, context }), signal });
 
 export const postOps = (findings: AuditFinding[], score: number, context: TurnContext) =>
   call<OpsReview>("/agent/ops", {
