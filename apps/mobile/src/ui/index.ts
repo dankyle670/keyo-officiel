@@ -13,3 +13,4 @@ export * from "./Sheet";
 export * from "./Header";
 export * from "./CurrencySelect";
 export * from "./Settings";
+export * from "./ScoreGauge";

@@ -74,6 +74,7 @@ pnpm --filter @keyo/api dev   # API hors conteneur
 - Toute modification passe par une carte de confirmation (réglage `agentConfirm` dans le Profil).
 - Contrôle de gestion (« ops ») : `runAudit` dans `packages/shared/src/audit.ts` est la source de vérité (déterministe, testé) ; le sous-agent `/agent/ops` ne fait que prioriser, sans inventer de point.
 - Repères fiscaux et juridiques : toujours indicatifs, renvoyer vers un conseiller.
+- Passeport propriétaire : `ownerPassport` et `borrowingCapacity` dans `packages/shared/src/owner-passport.ts` (score sur 1000, revenus certifiés = encaissements confirmés par webhook uniquement, capacité d'emprunt à 70 % des loyers). Les revenus déclarés restent marqués « déclarés ». Jamais présenté comme une offre de prêt.
 - Patrimoine familial : un bien est `PERSONAL` ou `FAMILY` ; les parts (`AssetShare`, pour mille, total 1000) et la valeur de chacun viennent de `packages/shared/src/patrimony.ts`. Les proches sont des `Party` de rôle `FAMILY` (consulter ou co-gérer). Pas de conversion de devise implicite.
 - Évaluation : l'expertise Keyo (`packages/shared/src/appraisal.ts`) pose les questions d'un expert et calcule l'estimation (maisons, appartements, plantations seulement). Écran `bien/[id]/expertise` (simulation sans clé) ; outils `get_appraisal_questions` et `submit_appraisal` pour l'agent. `valueAsset` (`valuation.ts`) ne donne qu'une première indication. Toujours indicatif.
 

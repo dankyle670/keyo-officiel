@@ -1,6 +1,6 @@
 import { Alert, View } from "react-native";
 import { router } from "expo-router";
-import { Bell, Bot, CircleHelp, Database, FileText, Fingerprint, Send, SlidersHorizontal, UserRound, Wallet, Users } from "lucide-react-native";
+import { Bell, Bot, CircleHelp, Database, FileText, Fingerprint, Send, SlidersHorizontal, UserRound, Wallet, Landmark, Users } from "lucide-react-native";
 import { currencyLabel } from "@keyo/shared";
 import { initialsOf } from "@/data/selectors";
 import { session, useSettings, useUser } from "@/data/session";
@@ -45,6 +45,7 @@ export default function Profile() {
       </SettingsGroup>
 
       <SettingsGroup title="Gestion">
+        <NavRow icon={Landmark} tint="mintTint" ink="mintDeep" title="Passeport propriétaire" value="Crédit et banque" onPress={() => router.push("/passeport")} />
         <NavRow icon={Users} tint="mintTint" ink="mintDeep" title="Famille et patrimoine" value={familyCount ? `${familyCount} proche${familyCount > 1 ? "s" : ""}` : "Inviter"} onPress={() => router.push("/famille")} />
         <NavRow icon={Send} tint="amberTint" ink="amber" title="Relances" value={user.autoReminders ? "Automatiques" : "Désactivées"} onPress={() => open("relances")} />
         <NavRow icon={Wallet} tint="amberTint" ink="amber" title="Encaissement" value={methods || "Aucun moyen"} onPress={() => open("encaissement")} />

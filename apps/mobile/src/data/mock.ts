@@ -287,9 +287,9 @@ export function createDemoState(ownerId: string, now: string): OwnerState {
     { id: "m2", partyId: "p-fatou", from: "OWNER", text: "Merci Fatou. Je regarde les devis et je vous confirme le passage du plombier.", at: shiftHours(now, -1.5) },
   ];
 
-  return { assets, units, parties, agreements, schedule, transactions, events, documents, messages, maintenance, missions, shares, appraisals: [], notificationsReadAt: shiftHours(now, -24) };
+  return { assets, units, parties, agreements, schedule, transactions, events, documents, messages, maintenance, missions, shares, appraisals: [], passport: { shares: [] }, notificationsReadAt: shiftHours(now, -24) };
 }
 
 export function createEmptyState(): OwnerState {
-  return { assets: [], units: [], parties: [], agreements: [], schedule: [], transactions: [], events: [], documents: [], messages: [], maintenance: [], missions: [], shares: [], appraisals: [], notificationsReadAt: new Date(0).toISOString() };
+  return { assets: [], units: [], parties: [], agreements: [], schedule: [], transactions: [], events: [], documents: [], messages: [], maintenance: [], missions: [], shares: [], appraisals: [], passport: { shares: [] }, notificationsReadAt: new Date(0).toISOString() };
 }

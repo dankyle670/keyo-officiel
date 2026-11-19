@@ -1,7 +1,7 @@
-import { appraisalKind, appraisalQuestions, AUDIT_AREA_LABEL, CONFIDENCE_LABEL, formatMoney, formatShare, type Currency } from "@keyo/shared";
+import { borrowingCapacity, PASSPORT_LEVEL_LABEL, appraisalKind, appraisalQuestions, AUDIT_AREA_LABEL, CONFIDENCE_LABEL, formatMoney, formatShare, type Currency } from "@keyo/shared";
 import { answer } from "@/data/assistant";
 import { addDays, currentMonth, monthName, today } from "@/data/period";
-import { auditReport, familyHolders, latestAppraisal, monthSummary, portfolioValue } from "@/data/selectors";
+import { auditReport, familyHolders, latestAppraisal, monthSummary, passportOf, portfolioValue } from "@/data/selectors";
 import { getSession } from "@/data/session";
 import { getOwnerState } from "@/data/store";
 
@@ -59,6 +59,17 @@ export function demoReply(question: string, currency: Currency): DemoReply {
     return {
       text: `${ok.length ? `Biens que je peux expertiser :\n${lines.join("\n")}` : "Aucun de vos biens n'est encore expertisable."}${others ? `\n${others} autre${others > 1 ? "s" : ""} bien${others > 1 ? "s" : ""} (immeuble, local, véhicule…) : bientôt.` : ""}${next ? `\nCommençons par ${next.name} ?` : ""}\nSources : expertise Keyo`,
       link: next ? { label: `Expertiser ${next.name}`, href: `/bien/${next.id}/expertise` } : undefined,
+    };
+  }
+
+  if (/(credit|emprunt|banque|passeport|pret|capacite)/.test(q)) {
+    const ses = getSession();
+    const uid = ses.status === "signedIn" ? ses.user.id : "owner";
+    const p = passportOf(s, uid, currency, today());
+    const b = borrowingCapacity({ passport: p, otherIncome: s.passport.otherIncome ?? 0, existingLoans: s.passport.existingLoans ?? 0, years: 15 });
+    return {
+      text: `Votre passeport propriétaire : ${p.score} sur 1000 (${PASSPORT_LEVEL_LABEL[p.level].toLowerCase()}).\n- Loyers certifiés sur 12 mois : ${formatMoney(p.certifiedIncome12m)}${p.expected12m.amount ? `, ${(p.collectionRatePermille / 10).toLocaleString("fr-FR")} % encaissés` : ""}\n- Capacité d'emprunt indicative sur 15 ans : ${formatMoney(b.capacity)}, mensualité jusqu'à ${formatMoney(b.maxInstallment)}${s.passport.otherIncome ? "" : " (loyers seuls : ajoutez vos autres revenus pour un calcul complet)"}\nCe n'est pas une offre de prêt : la banque décide.\nSources : passeport propriétaire`,
+      link: { label: "Simuler un crédit", href: "/passeport/credit" },
     };
   }
 

@@ -62,6 +62,10 @@ export default function RootLayout() {
             <Stack.Screen name="bien/[id]/evaluation" />
             <Stack.Screen name="bien/[id]/expertise" options={{ presentation: "fullScreenModal" }} />
             <Stack.Screen name="famille/index" />
+            <Stack.Screen name="passeport/index" />
+            <Stack.Screen name="passeport/credit" />
+            <Stack.Screen name="passeport/partage" options={{ presentation: "modal" }} />
+            <Stack.Screen name="passeport/attestation" />
             <Stack.Screen name="famille/inviter" options={{ presentation: "modal" }} />
             <Stack.Screen name="famille/[id]/index" />
             <Stack.Screen name="famille/[id]/espace" />

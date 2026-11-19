@@ -77,6 +77,13 @@ export const AGENT_TOOLS = {
       "Questions qu'un expert pose pour évaluer un bien (maisons, appartements et plantations uniquement), avec les réponses déjà connues (prefill) et les choix possibles. Menez l'entretien dans le chat comme un expert : une ou deux questions à la fois, proposez de confirmer les réponses connues, puis appelez submit_appraisal avec les codes des réponses.",
     input: z.object({ assetId: z.string() }),
   },
+  get_owner_passport: {
+    kind: "read",
+    label: "Passeport propriétaire",
+    description:
+      "Profil financier du propriétaire pour une banque : score sur 1000 et ses critères, loyers certifiés sur 12 mois, taux d'encaissement, occupation, patrimoine, et capacité d'emprunt indicative (70 % des loyers retenus, endettement plafonné). Paramètres facultatifs pour simuler : autres revenus et crédits en cours (mensuels, unité mineure), durée en années, loyer attendu du bien à financer. Toujours préciser que ce n'est pas une offre de prêt.",
+    input: z.object({ otherIncome: minor.optional(), existingLoans: minor.optional(), years: z.number().int().min(1).max(30).optional(), projectRent: minor.optional() }),
+  },
   get_patrimony: {
     kind: "read",
     label: "Patrimoine familial",

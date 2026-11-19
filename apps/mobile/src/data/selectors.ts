@@ -1,4 +1,4 @@
-import { holderPatrimony, runAudit, sharesOf, totalPatrimony, type Party, type Patrimony } from "@keyo/shared";
+import { ownerPassport, holderPatrimony, runAudit, sharesOf, totalPatrimony, type Party, type Patrimony } from "@keyo/shared";
 import { daysBetween, formatMoney, sumMoney, type Asset, type AssetEvent, type Currency, type Money, type StatusTone } from "@keyo/shared";
 import type { OwnerState } from "./store";
 
@@ -313,3 +313,10 @@ export function memberDigest(s: OwnerState, holderId: string, month: string, on:
 }
 
 export const latestAppraisal = (s: OwnerState, assetId: string) => [...s.appraisals].reverse().find((x) => x.assetId === assetId);
+
+/** Passeport propriétaire, dans la devise d'affichage. */
+export function passportOf(s: OwnerState, ownerId: string, currency: Currency, on: string) {
+  return ownerPassport({ ownerId, currency, assets: s.assets, units: s.units, agreements: s.agreements, schedule: s.schedule, transactions: s.transactions, shares: s.shares, auditScore: auditReport(s, on).score, today: on });
+}
+
+export const shareStatus = (x: { expiresAt: string; revokedAt?: string }, now = new Date().toISOString()) => (x.revokedAt ? "REVOKED" : x.expiresAt < now ? "EXPIRED" : "ACTIVE");

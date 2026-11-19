@@ -2,14 +2,14 @@ import { useMemo } from "react";
 import { Pressable, View } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Bell, ChevronRight, Plus, Search, ShieldCheck, Wallet } from "lucide-react-native";
+import { Bell, ChevronRight, Plus, Search, ShieldCheck, Wallet, Landmark } from "lucide-react-native";
 import { money } from "@keyo/shared";
 import { color, radius } from "@keyo/tokens";
 import { LockMotif } from "@/brand/Logo";
 import { eventIcon } from "@/data/icons";
 import { buildMarkers } from "@/data/markers";
 import { currentMonth, monthName, nowIso, today } from "@/data/period";
-import { auditReport, initialsOf, monthSummary, notificationFeed, todoItems } from "@/data/selectors";
+import { auditReport, initialsOf, monthSummary, notificationFeed, passportOf, todoItems } from "@/data/selectors";
 import { useUser } from "@/data/session";
 import { actions, useOwnerState } from "@/data/store";
 import { AssetsMap } from "@/map/AssetsMap";
@@ -22,6 +22,7 @@ export default function OwnerHome() {
   const state = useOwnerState((s) => s);
   const month = currentMonth();
   const currency = user.displayCurrency;
+  const passport = useMemo(() => passportOf(state, user.id, currency, today()), [state, user.id, currency]);
   const summary = useMemo(() => monthSummary(state, month, today(), currency), [state, month, currency]);
   const todos = useMemo(() => todoItems(state, month, today(), currency).slice(0, 2), [state, month, currency]);
   const markers = useMemo(() => buildMarkers(state, state.assets, month, today()), [state, month]);
@@ -92,13 +93,14 @@ export default function OwnerHome() {
           </View>
         </Pressable>
 
-        {/* Contrôle de gestion : ce qu'une agence vérifierait */}
+        {/* Contrôle de gestion et passeport : ce qu'une agence et une banque regarderaient */}
         {!empty && (
-          <Pressable
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+<Pressable
             onPress={() => router.push("/controle")}
             accessibilityRole="button"
             accessibilityLabel={`Contrôle de gestion, score ${audit.score} sur 100`}
-            style={{ alignSelf: "flex-start", height: 44, borderRadius: 999, backgroundColor: color.surfaceRaised, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 14, paddingRight: 10 }}
+            style={{ height: 44, borderRadius: 999, backgroundColor: color.surfaceRaised, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 14, paddingRight: 10 }}
           >
             <ShieldCheck size={20} strokeWidth={1.8} color={audit.counts.HIGH ? color.danger : audit.findings.length ? color.amber : color.mintDeep} />
             <Text variant="rowTitle" tabular>
@@ -109,6 +111,19 @@ export default function OwnerHome() {
             </Text>
             <ChevronRight size={18} strokeWidth={1.8} color={color.inkMuted} />
           </Pressable>
+            <Pressable
+              onPress={() => router.push("/passeport")}
+              accessibilityRole="button"
+              accessibilityLabel={`Passeport propriétaire, score ${passport.score} sur 1000`}
+              style={{ height: 44, borderRadius: 999, backgroundColor: color.surfaceRaised, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 14, paddingRight: 10 }}
+            >
+              <Landmark size={20} strokeWidth={1.8} color={color.mintDeep} />
+              <Text variant="rowTitle" tabular>
+                Passeport {passport.score}
+              </Text>
+              <ChevronRight size={18} strokeWidth={1.8} color={color.inkMuted} />
+            </Pressable>
+          </View>
         )}
       </View>
 

@@ -52,6 +52,22 @@ export type Message = { id: string; partyId: string; from: "OWNER" | "PARTY"; te
 
 export type Appraisal = { id: string; assetId: string; answers: AppraisalAnswers; result: AppraisalResult; createdAt: string; by: "OWNER" | "AGENT"; applied: boolean };
 
+/** Partage du passeport avec un établissement : consentement, durée limitée, révocable. */
+export type PassportShare = {
+  id: string;
+  institution: string;
+  institutionKind: "BANK" | "MICROFINANCE" | "OTHER";
+  scopes: ("SCORE" | "INCOME" | "PATRIMONY" | "ASSETS")[];
+  createdAt: string;
+  expiresAt: string;
+  revokedAt?: string;
+  /** Code de vérification remis à l'établissement. */
+  code: string;
+  /** Consultations par l'établissement (alimenté par l'API). */
+  accesses: string[];
+};
+export type PassportState = { otherIncome?: number; existingLoans?: number; shares: PassportShare[] };
+
 export type OwnerState = {
   assets: Asset[];
   units: AssetUnit[];
@@ -68,6 +84,8 @@ export type OwnerState = {
   shares: AssetShare[];
   /** Expertises Keyo réalisées (entretien et résultat), la plus récente en dernier. */
   appraisals: Appraisal[];
+  /** Passeport propriétaire : revenus déclarés et partages. */
+  passport: PassportState;
   notificationsReadAt: string;
 };
 
@@ -207,6 +225,30 @@ export const actions = {
       documents: [...s.documents, leaseDoc],
     }));
     return { agreementId, partyId };
+  },
+
+  setPassportDeclared(patch: { otherIncome?: number; existingLoans?: number }) {
+    setState((s) => ({ ...s, passport: { ...s.passport, ...patch } }));
+  },
+
+  sharePassport(input: { institution: string; institutionKind: PassportShare["institutionKind"]; scopes: PassportShare["scopes"]; days: number }): PassportShare {
+    const now = new Date();
+    const share: PassportShare = {
+      id: newId("ps"),
+      institution: input.institution,
+      institutionKind: input.institutionKind,
+      scopes: input.scopes,
+      createdAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + input.days * 86_400_000).toISOString(),
+      code: Array.from({ length: 8 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random() * 32)]).join("").replace(/(.{4})/, "$1-"),
+      accesses: [],
+    };
+    setState((s) => ({ ...s, passport: { ...s.passport, shares: [...s.passport.shares, share] } }));
+    return share;
+  },
+
+  revokePassportShare(id: string) {
+    setState((s) => ({ ...s, passport: { ...s.passport, shares: s.passport.shares.map((x) => (x.id === id ? { ...x, revokedAt: nowIso() } : x)) } }));
   },
 
   /** Enregistre une expertise ; si `apply`, sa valeur devient celle du bien et de ses unités. */

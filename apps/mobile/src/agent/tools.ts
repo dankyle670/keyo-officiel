@@ -1,6 +1,6 @@
-import { AGENT_TOOLS, appraisalKind, appraisalQuestions, appraise, AUDIT_AREA_LABEL, CONFIDENCE_LABEL, formatMoney, formatShare, isAgentTool, kindLabel, money, profileOf, valueAsset, type AgentToolInput, type AgentToolName, type Currency } from "@keyo/shared";
+import { AGENT_TOOLS, borrowingCapacity, PASSPORT_LEVEL_LABEL, appraisalKind, appraisalQuestions, appraise, AUDIT_AREA_LABEL, CONFIDENCE_LABEL, formatMoney, formatShare, isAgentTool, kindLabel, money, profileOf, valueAsset, type AgentToolInput, type AgentToolName, type Currency } from "@keyo/shared";
 import { currentMonth, monthName, nowIso, today } from "@/data/period";
-import { assetHolders, assetSummary, auditReport, familyAssets, familyHolders, formatPermille, isOpenEvent, latestAppraisal, monthSummary, partyName, portfolioValue, yearFinance } from "@/data/selectors";
+import { passportOf, assetHolders, assetSummary, auditReport, familyAssets, familyHolders, formatPermille, isOpenEvent, latestAppraisal, monthSummary, partyName, portfolioValue, yearFinance } from "@/data/selectors";
 import { getSession, getSettings } from "@/data/session";
 import { actions, getOwnerState } from "@/data/store";
 import { agentMode, postOps, type TurnContext } from "./api";
@@ -212,6 +212,39 @@ const EXECUTORS: { [N in AgentToolName]: Executor<N> } = {
     return ok(
       { valeur: formatMoney(r.value), fourchette: `${formatMoney(r.low)} à ${formatMoney(r.high)}`, fiabilite: CONFIDENCE_LABEL[r.confidence], facteurs: r.factors, methode: r.method, ecartAvecAvisProprietaire: r.ownerGapPercent, retenue: apply },
       `Expertise de ${a.name} : ${formatMoney(r.value)}`,
+    );
+  },
+
+  get_owner_passport({ otherIncome, existingLoans, years, projectRent }) {
+    const s = getOwnerState();
+    const o = owner();
+    const p = passportOf(s, o.id, currency(), today());
+    const declared = { other: otherIncome ?? s.passport.otherIncome ?? 0, loans: existingLoans ?? s.passport.existingLoans ?? 0 };
+    const b = borrowingCapacity({ passport: p, otherIncome: declared.other, existingLoans: declared.loans, years: years ?? 15, projectRent });
+    const pct = (x: number) => `${x / 10} %`;
+    return ok(
+      {
+        score: `${p.score}/1000, ${PASSPORT_LEVEL_LABEL[p.level]}`,
+        criteres: p.parts.map((x) => `${x.label} ${x.points}/${x.max} : ${x.detail}`),
+        loyersCertifies12Mois: formatMoney(p.certifiedIncome12m),
+        moyenneMensuelle: formatMoney(p.monthlyCertifiedIncome),
+        tauxEncaissement: p.expected12m.amount ? pct(p.collectionRatePermille) : null,
+        loyersBauxEnCours: formatMoney(p.currentMonthlyRent),
+        depenses12Mois: formatMoney(p.expenses12m),
+        patrimoine: formatMoney(p.patrimony),
+        credit: {
+          duree: `${b.years} ans`,
+          taux: pct(b.ratePermille),
+          revenusRetenus: formatMoney(b.retainedIncome),
+          dontAutresRevenusDeclares: formatMoney({ amount: declared.other, currency: p.currency }),
+          mensualiteMax: formatMoney(b.maxInstallment),
+          montantEmpruntable: formatMoney(b.capacity),
+          endettementActuel: pct(b.currentDebtPermille),
+          endettementMax: pct(b.maxDebtPermille),
+        },
+        avertissement: "Simulation indicative, pas une offre de prêt. La banque décide.",
+      },
+      `Score ${p.score}, capacité ${formatMoney(b.capacity)}`,
     );
   },
 
