@@ -4,7 +4,8 @@ import { Inject, Injectable } from "@nestjs/common";
 import { z } from "zod";
 import { agentToolSchemas, type AuditFinding } from "@keyo/shared";
 import { AGENT_SYSTEM, OPS_SYSTEM } from "./prompts.ts";
-import { advisorTool, callParams, MODELS, ROUTES, routeTurn } from "./router.ts";
+import { callParams, MODELS, requiredTier, ROUTES, startTier, SWITCH_MODEL_TOOL } from "./router.ts";
+import { MODEL_TIERS, tierAtLeast, type ModelTier } from "@keyo/shared";
 
 export const ANTHROPIC = Symbol("ANTHROPIC");
 
@@ -21,6 +22,8 @@ export type TurnContext = z.infer<typeof TurnContext>;
 export const TurnBody = z.object({
   messages: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.union([z.string(), z.array(z.any())]) })).min(1).max(200),
   context: TurnContext,
+  /** Palier atteint à l'étape précédente de la même demande (renvoyé par l'app). */
+  tier: z.enum(MODEL_TIERS).optional(),
 });
 
 export const OpsBody = z.object({
@@ -59,22 +62,36 @@ export class AgentService {
    */
   async turn(body: z.infer<typeof TurnBody>) {
     if (!this.client) return null;
-    // Recherche web (outil serveur de Claude) : trouver des artisans ou des repères locaux.
-    // Le code choisit le modèle selon la demande ; Haiku et Sonnet peuvent consulter Opus (advisor).
-    const r = routeTurn(body.messages as Parameters<typeof routeTurn>[0]);
-    const tools = [WEB_SEARCH, ...advisorTool(r), ...this.tools.map((t, i) => (i === this.tools.length - 1 ? { ...t, cache_control: { type: "ephemeral" as const } } : t))];
-    const res = await this.client.beta.messages.create({
-      ...callParams(r),
+    const messages = body.messages as Anthropic.Beta.BetaMessageParam[];
+    let tier = startTier(body.messages as Parameters<typeof startTier>[0], body.tier);
+    let reason: string | undefined;
+    // L'agent commence léger ; s'il choisit une action d'un palier supérieur (ou le demande avec
+    // switch_model), l'étape est reprise par le modèle de ce palier. Au plus deux reprises.
+    for (let attempt = 0; ; attempt++) {
+      const res = await this.call(tier, body.context, messages);
+      const need = requiredTier(res.content as Parameters<typeof requiredTier>[0]);
+      if (attempt < 2 && !tierAtLeast(tier, need.tier) && res.stop_reason !== "refusal") {
+        [tier, reason] = [need.tier, need.reason];
+        continue;
+      }
+      return { content: res.content, stop_reason: res.stop_reason, model: res.model, tier, reason };
+    }
+  }
+
+  private call(tier: ModelTier, context: TurnContext, messages: Anthropic.Beta.BetaMessageParam[]) {
+    // Mêmes outils et même message système pour tous les modèles (condition pour changer de modèle
+    // en cours de demande). La recherche web choisie par Haiku fait reprendre l'étape par Sonnet.
+    const tools = [WEB_SEARCH, SWITCH_MODEL_TOOL, ...this.tools.map((t, i) => (i === this.tools.length - 1 ? { ...t, cache_control: { type: "ephemeral" as const } } : t))];
+    return this.client!.beta.messages.create({
+      ...callParams(tier),
       max_tokens: 16000,
-      thinking: { type: "adaptive" },
       system: [
         { type: "text", text: AGENT_SYSTEM, cache_control: { type: "ephemeral" } },
-        { type: "text", text: contextBlock(body.context) },
+        { type: "text", text: contextBlock(context) },
       ],
-      tools,
-      messages: body.messages as Anthropic.Beta.BetaMessageParam[],
+      tools: tools as Anthropic.Beta.BetaToolUnion[],
+      messages,
     });
-    return { content: res.content, stop_reason: res.stop_reason, model: res.model, tier: r.tier, reason: r.reason };
   }
 
   /** Sous-agent « ops » : priorise les points du contrôle de gestion, sans en inventer. */
@@ -82,9 +99,9 @@ export class AgentService {
     if (!this.client) return null;
     if (body.findings.length === 0) return { verdict: "Tout est en ordre : aucun point à traiter.", priorities: [] };
     const res = await this.client.beta.messages.parse({
-      ...callParams(ROUTES.ops()),
+      ...callParams(ROUTES.ops),
       max_tokens: 8000,
-      output_config: { effort: ROUTES.ops().effort, format: betaZodOutputFormat(OpsReview) },
+      output_config: { effort: MODELS[ROUTES.ops].effort, format: betaZodOutputFormat(OpsReview) },
       system: [
         { type: "text", text: OPS_SYSTEM, cache_control: { type: "ephemeral" } },
         { type: "text", text: contextBlock(body.context) },

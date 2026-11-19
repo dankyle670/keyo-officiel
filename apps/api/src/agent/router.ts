@@ -1,108 +1,92 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import { MODEL_TIERS, maxTier, tierAtLeast, tierOfTool, type ModelTier } from "@keyo/shared";
 
 /**
- * Choix du modèle pour chaque tâche, décidé par le code (sans appel à Claude) :
- * - « rapide » (Haiku) : salutations, consultations simples, tâches de fond très encadrées ;
- * - « courant » (Sonnet) : la plupart des demandes, actions, recherche d'artisans ;
- * - « expert » (Opus) : fiscalité, droit, expertise de valeur, patrimoine, documents PDF, analyses longues.
- * Haiku et Sonnet peuvent en plus consulter Opus d'eux-mêmes (outil « advisor ») quand une
- * question les dépasse : c'est l'agent qui décide alors de monter en gamme, seulement pour ce passage.
- * Chaque palier se règle par variable d'environnement.
+ * L'agent choisit son modèle selon l'action qu'il entreprend.
+ * - Chaque demande commence sur le palier le plus léger (Haiku).
+ * - Chaque outil a un palier minimal (packages/shared/src/model-tiers.ts) : dès que l'agent choisit
+ *   une action d'un palier supérieur, l'étape est reprise par le modèle de ce palier, qui décide
+ *   et agit à sa place.
+ * - Sans action particulière (une question fiscale, un conseil), l'agent peut monter de lui-même
+ *   avec l'outil switch_model.
+ * Le palier ne redescend jamais au cours d'une même demande. Modèles réglables par variables d'environnement.
  */
-export type Tier = "fast" | "standard" | "expert";
 type Effort = "low" | "medium" | "high";
-
-export type Route = { tier: Tier; model: string; effort: Effort; advisor?: string; reason: string };
-
 const env = (k: string, d: string) => process.env[k] || d;
-export const MODELS: Record<Tier, { model: string; effort: Effort }> = {
-  fast: { model: env("KEYO_MODEL_FAST", "claude-haiku-5-5"), effort: "low" },
-  standard: { model: env("KEYO_MODEL_STANDARD", "claude-sonnet-5-5"), effort: "medium" },
-  expert: { model: env("KEYO_MODEL_EXPERT", "claude-opus-5-5"), effort: "medium" },
-};
-/** Conseiller consulté par Haiku ou Sonnet quand ils le jugent utile. Vide pour désactiver. */
-const ADVISOR = env("KEYO_MODEL_ADVISOR", "claude-opus-5-5");
-
-const route = (tier: Tier, reason: string): Route => {
-  const m = MODELS[tier];
-  return { tier, ...m, advisor: tier !== "expert" && ADVISOR && ADVISOR !== m.model ? ADVISOR : undefined, reason };
+export const MODELS: Record<ModelTier, { model: string; effort: Effort }> = {
+  FAST: { model: env("KEYO_MODEL_FAST", "claude-haiku-5-5"), effort: "low" },
+  STANDARD: { model: env("KEYO_MODEL_STANDARD", "claude-sonnet-5-5"), effort: "medium" },
+  EXPERT: { model: env("KEYO_MODEL_EXPERT", "claude-opus-5-5"), effort: "medium" },
 };
 
-const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-
-const EXPERT =
-  /(expertis|estim|valeur|evalu|fiscal|impot|taxe|juridi|\bloi\b|legal|litige|procedure|tribunal|avocat|expuls|mise en demeure|succession|herit|patrimoine|passeport|emprunt|credit|banque|\bpret\b|rentabilit|strateg|investi|compar|audit|controle complet|analyse|conseil|que me conseill|dois-je|faut-il)/;
-const FAST_GREETING = /^(bonjour|bonsoir|salut|hello|coucou|merci|qui es[- ]tu|qui etes[- ]vous|tu es qui)\b/;
-const FAST_LOOKUP = /^(ou en (sont|est)|quel(le)?s? (sont|est)|combien|liste|montre|affiche|qui (est|sont) en retard|qui a paye)\b/;
-const CONFIRM = /^(oui|non|ok|okay|d'accord|daccord|vas[- ]y|go|valide|je valide|confirme|parfait|c'est bon|stop|annule|le premier|le deuxieme|la premiere)\b/;
-
-type Msg = { role: "user" | "assistant"; content: string | Record<string, unknown>[] };
-
-/** Texte écrit par le propriétaire dans un message (les résultats d'outils n'en sont pas). */
-function ownerText(m: Msg): { text: string; pdf: boolean; image: boolean } | undefined {
-  if (m.role !== "user") return undefined;
-  if (typeof m.content === "string") return { text: m.content, pdf: false, image: false };
-  const text = m.content.filter((b) => b.type === "text").map((b) => String(b.text ?? "")).join(" ");
-  const pdf = m.content.some((b) => b.type === "document");
-  const image = m.content.some((b) => b.type === "image");
-  return text || pdf || image ? { text, pdf, image } : undefined;
-}
-
-function classify(o: { text: string; pdf: boolean; image: boolean }): Route | "inherit" {
-  const t = norm(o.text.trim());
-  if (o.pdf) return route("expert", "document PDF à lire");
-  if (t.length > 400) return route("expert", "demande longue");
-  if (EXPERT.test(t)) return route("expert", "question fiscale, juridique, de valeur ou d'analyse");
-  if (o.image) return route("standard", "photo à lire");
-  if (t.length <= 40 && CONFIRM.test(t)) return "inherit";
-  if (t.length <= 60 && FAST_GREETING.test(t)) return route("fast", "salutation");
-  if (t.length <= 80 && FAST_LOOKUP.test(t)) return route("fast", "consultation simple");
-  return route("standard", "demande courante");
-}
+export const SWITCH_MODEL = "switch_model";
 
 /**
- * Modèle d'un tour de chat. On regarde le dernier message écrit par le propriétaire : le choix reste
- * donc le même pendant toute la boucle d'outils de ce message. Une simple confirmation (« oui »,
- * « valide ») garde le modèle de la demande précédente, qui a préparé l'action.
+ * Outil de montée en gamme. Identique pour tous les modèles : la liste d'outils et le message
+ * système ne doivent pas changer d'un modèle à l'autre, sinon l'API refuse l'historique.
  */
-export function routeTurn(messages: Msg[]): Route {
-  let inherited = false;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const o = ownerText(messages[i]!);
-    if (!o) continue;
-    const r = classify(o);
-    if (r !== "inherit") return inherited ? { ...r, reason: `confirmation de : ${r.reason}` } : r;
-    inherited = true;
-  }
-  return route("standard", inherited ? "confirmation" : "par défaut");
-}
-
-/** Tâches internes, choisies une fois pour toutes. */
-export const ROUTES = {
-  /** Priorisation des points du contrôle de gestion (sortie structurée, points déjà calculés). */
-  ops: () => route("fast", "priorisation du contrôle"),
-  /** Gérant de l'agent autonome : répartit le travail entre spécialistes. */
-  manager: () => route("standard", "gérant"),
-  /** Spécialistes de l'agent autonome : tâches encadrées, chaque action revalidée par ActionGate. */
-  specialist: () => route("fast", "spécialiste"),
+export const SWITCH_MODEL_TOOL: Anthropic.Beta.BetaTool = {
+  name: SWITCH_MODEL,
+  description:
+    "Confie la suite de cette demande à un modèle plus capable. STANDARD : agir, rédiger un message délicat, chercher sur le web. EXPERT : fiscalité, droit, contrat, litige, valeur d'un bien, patrimoine, banque, analyse ou plan en plusieurs étapes. Inutile si l'action que vous allez appeler suffit : les actions importantes passent d'elles-mêmes au bon modèle. Si vous êtes déjà au palier demandé, poursuivez sans l'appeler.",
+  input_schema: { type: "object", properties: { tier: { type: "string", enum: ["STANDARD", "EXPERT"] }, reason: { type: "string" } }, required: ["tier", "reason"] },
 };
 
-export const ADVISOR_BETA = "advisor-tool-2026-03-01";
+type Block = { type: string; name?: string; input?: unknown };
 
-/** Paramètres communs d'un appel selon le palier : modèle, effort, conseiller, bascule serveur. */
-export function callParams(r: Route) {
-  // Haiku n'a pas de bascule côté serveur ; l'en-tête du conseiller est toujours envoyé, car
-  // l'historique peut contenir ses réponses même quand le palier courant ne l'utilise pas.
-  const betas = [ADVISOR_BETA, ...(r.tier === "fast" ? [] : ["server-side-fallback-2026-07-01"])] as Anthropic.Beta.AnthropicBeta[];
+/** Palier exigé par une réponse : actions choisies, recherche web, ou montée demandée par l'agent. */
+export function requiredTier(content: Block[]): { tier: ModelTier; reason?: string } {
+  let tier: ModelTier = "FAST";
+  let reason: string | undefined;
+  for (const b of content) {
+    if ((b.type === "tool_use" || b.type === "server_tool_use") && b.name) {
+      if (b.name === SWITCH_MODEL) {
+        const i = b.input as { tier?: ModelTier; reason?: string } | undefined;
+        if (i?.tier && MODEL_TIERS.includes(i.tier) && !tierAtLeast(tier, i.tier)) [tier, reason] = [i.tier, i.reason ?? "choix de l'agent"];
+        continue;
+      }
+      const t = tierOfTool(b.name);
+      if (!tierAtLeast(tier, t)) [tier, reason] = [t, `action ${b.name}`];
+    }
+  }
+  return { tier, reason };
+}
+
+type Msg = { role: "user" | "assistant"; content: string | Block[] };
+const isOwnerText = (m: Msg) => m.role === "user" && (typeof m.content === "string" || m.content.some((b) => b.type !== "tool_result"));
+
+/**
+ * Palier déjà atteint dans la demande en cours : actions déjà faites depuis le dernier message du
+ * propriétaire, et palier renvoyé par l'app à l'étape précédente.
+ */
+export function startTier(messages: Msg[], fromApp?: ModelTier): ModelTier {
+  let tier: ModelTier = fromApp ?? "FAST";
+  for (let i = messages.length - 1; i >= 0 && !isOwnerText(messages[i]!); i--) {
+    const m = messages[i]!;
+    if (m.role === "assistant" && typeof m.content !== "string") tier = maxTier(tier, requiredTier(m.content).tier);
+  }
+  return tier;
+}
+
+/** Tâches internes, au palier fixé une fois pour toutes. */
+export const ROUTES = {
+  ops: "FAST",
+  manager: "STANDARD",
+  specialist: "FAST",
+} satisfies Record<string, ModelTier>;
+
+/**
+ * Paramètres d'un appel selon le palier. Haiku n'a pas de bascule côté serveur. Filet de sécurité :
+ * une réflexion produite par un autre modèle et devenue illisible est écartée au lieu d'une erreur.
+ */
+export function callParams(tier: ModelTier) {
+  const m = MODELS[tier];
+  const betas = ["thinking-binding-controls-2026-08-01", ...(tier === "FAST" ? [] : ["server-side-fallback-2026-07-01"])] as Anthropic.Beta.AnthropicBeta[];
   return {
     betas,
-    ...(r.tier === "fast" ? {} : { fallbacks: "default" as const }),
-    model: r.model,
-    output_config: { effort: r.effort },
+    ...(tier === "FAST" ? {} : { fallbacks: "default" as const }),
+    model: m.model,
+    output_config: { effort: m.effort },
+    thinking: { type: "adaptive" as const, block_binding: { prefix_mismatch_behavior: "drop_block" as const } },
   };
-}
-
-/** Outil « advisor » : Haiku ou Sonnet consultent Opus quand ils le jugent nécessaire. */
-export function advisorTool(r: Route, maxUses = 2) {
-  return r.advisor ? [{ type: "advisor_20260301", name: "advisor", model: r.advisor, max_uses: maxUses } as unknown as Anthropic.Beta.BetaToolUnion] : [];
 }

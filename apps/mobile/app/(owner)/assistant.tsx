@@ -3,7 +3,10 @@ import { Alert, Animated, Easing, Image, KeyboardAvoidingView, Pressable, Scroll
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
+  ArrowDown,
   ArrowUp,
+  ChevronDown,
+  ChevronRight,
   Cable,
   Camera,
   Check,
@@ -19,6 +22,8 @@ import {
   SlidersHorizontal,
   Square,
   SquarePen,
+  ThumbsDown,
+  ThumbsUp,
   Trash2,
   Volume2,
   Wallet,
@@ -81,16 +86,31 @@ export default function Agent() {
     }
   }, [params.k, params.prompt]);
 
+  // Défilement comme dans ChatGPT : on suit la réponse tant que l'on est en bas ; sinon un
+  // bouton permet d'y revenir.
+  const atBottom = useRef(true);
+  const [showDown, setShowDown] = useState(false);
+  const toBottom = (animated = true) => scroll.current?.scrollToEnd({ animated });
   useEffect(() => {
-    const t = setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 80);
+    atBottom.current = true;
+    setShowDown(false);
+    const t = setTimeout(() => toBottom(false), 50);
     return () => clearTimeout(t);
-  }, [c.feed.length, c.busy]);
+  }, [c.id]);
+
+  // Réponses nouvelles : affichées progressivement. Celles déjà là (ou d'une autre conversation) : d'un coup.
+  const seen = useRef<{ thread: string; ids: Set<string> }>({ thread: c.id, ids: new Set(c.feed.map((f) => f.id)) });
+  const fresh = (id: string) => seen.current.thread === c.id && !seen.current.ids.has(id);
+  useEffect(() => {
+    seen.current = { thread: c.id, ids: new Set(c.feed.map((f) => f.id)) };
+  });
 
   const send = (text: string) => {
     if (c.busy || waiting || (!text.trim() && !files.length)) return;
     const toSend = files;
     setInput("");
     setFiles([]);
+    atBottom.current = true;
     conversation.send(text, toSend);
   };
 
@@ -139,37 +159,79 @@ export default function Agent() {
         <HeaderIcon icon={SquarePen} label="Nouvelle conversation" onPress={() => conversation.newThread()} disabled={empty || c.busy} />
       </View>
 
-      <ScrollView ref={scroll} keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 20, paddingBottom: 16 }}>
-        {empty ? (
-          <View style={{ flex: 1, justifyContent: "center", paddingVertical: 24 }}>
-            <KeyoMark size={40} />
-            <Text variant="title" style={{ fontSize: 28, lineHeight: 34, marginTop: 18 }}>
-              Bonjour {user.firstName},
-            </Text>
-            <Text variant="title" tone="inkMuted" style={{ fontSize: 28, lineHeight: 34 }}>
-              que puis-je faire pour vous ?
-            </Text>
-            <View style={{ marginTop: 28, gap: 8 }}>
-              {SUGGESTIONS.map((s) => (
-                <Pressable
-                  key={s.title}
-                  onPress={() => conversation.send(s.prompt)}
-                  accessibilityRole="button"
-                  style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 13, paddingHorizontal: 14, borderRadius: 20, backgroundColor: color.surfaceRaised, opacity: pressed ? 0.7 : 1 })}
-                >
-                  <s.icon size={20} strokeWidth={1.8} color={color.mintDeep} />
-                  <Text variant="rowTitle" style={{ flex: 1 }}>
-                    {s.title}
-                  </Text>
-                </Pressable>
-              ))}
+      <View style={{ flex: 1 }}>
+        <ScrollView
+          ref={scroll}
+          keyboardShouldPersistTaps="handled"
+          scrollEventThrottle={64}
+          onScroll={(e) => {
+            const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+            const bottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - 60;
+            atBottom.current = bottom;
+            if (bottom === showDown) setShowDown(!bottom);
+          }}
+          onContentSizeChange={() => atBottom.current && toBottom()}
+          contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 20, paddingBottom: 20 }}
+        >
+          {empty ? (
+            <View style={{ flex: 1, justifyContent: "center", paddingVertical: 24 }}>
+              <KeyoMark size={40} />
+              <Text variant="title" style={{ fontSize: 28, lineHeight: 34, marginTop: 18 }}>
+                Bonjour {user.firstName},
+              </Text>
+              <Text variant="title" tone="inkMuted" style={{ fontSize: 28, lineHeight: 34 }}>
+                que puis-je faire pour vous ?
+              </Text>
+              <View style={{ marginTop: 28, flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                {SUGGESTIONS.map((s) => (
+                  <Pressable
+                    key={s.title}
+                    onPress={() => conversation.send(s.prompt)}
+                    accessibilityRole="button"
+                    style={({ pressed }) => ({ width: "48.5%", minHeight: 92, gap: 10, padding: 14, borderRadius: 22, backgroundColor: color.surfaceRaised, borderWidth: 1, borderColor: color.line, opacity: pressed ? 0.7 : 1 })}
+                  >
+                    <s.icon size={20} strokeWidth={1.8} color={color.mintDeep} />
+                    <Text variant="rowSubtitle" style={{ color: color.ink, fontFamily: fontFamily.semibold }}>
+                      {s.title}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
             </View>
-          </View>
-        ) : (
-          c.feed.map((f, i) => <Item key={f.id} item={f} busy={c.busy} prev={c.feed[i - 1]} isLastAgent={f.id === lastAgent} onUserMenu={setUserMenu} />)
+          ) : (
+            group(c.feed).map((b, i, all) =>
+              b.kind === "steps" ? (
+                <Steps key={b.id} items={b.items} live={c.busy && i === all.length - 1} />
+              ) : (
+                <Item
+                  key={b.item.id}
+                  item={b.item}
+                  busy={c.busy}
+                  prev={all[i - 1]?.kind === "steps" ? "steps" : (all[i - 1] as { item?: FeedItem } | undefined)?.item?.kind}
+                  isLastAgent={b.item.id === lastAgent}
+                  animate={fresh(b.item.id)}
+                  onUserMenu={setUserMenu}
+                />
+              ),
+            )
+          )}
+          {c.busy && <Thinking label={liveLabel(c.feed)} />}
+        </ScrollView>
+        {showDown && !empty && (
+          <Pressable
+            onPress={() => {
+              atBottom.current = true;
+              setShowDown(false);
+              toBottom();
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Aller en bas de la conversation"
+            style={{ position: "absolute", bottom: 10, alignSelf: "center", width: 38, height: 38, borderRadius: 38, alignItems: "center", justifyContent: "center", backgroundColor: color.surfaceRaised, borderWidth: 1, borderColor: color.line, shadowColor: color.night, shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}
+          >
+            <ArrowDown size={18} strokeWidth={1.8} color={color.ink} />
+          </Pressable>
         )}
-        {c.busy && <Typing />}
-      </ScrollView>
+      </View>
 
       {/* Zone de saisie */}
       <View style={{ paddingHorizontal: 12, paddingBottom: TAB_BAR_CLEARANCE + insets.bottom - 14 }}>
@@ -203,7 +265,7 @@ export default function Agent() {
             ref={field}
             value={input}
             onChangeText={setInput}
-            placeholder={waiting ? "En attente de votre accord" : "Écrivez ou dictez"}
+            placeholder={waiting ? "En attente de votre accord" : "Demandez à Keyo"}
             placeholderTextColor={color.inkMuted}
             editable={!waiting}
             multiline
@@ -457,36 +519,174 @@ function FileChip({ file, onRemove }: { file: Attachment | AttachmentRef; onRemo
   );
 }
 
-/** Indicateur « l'agent écrit » : trois points qui pulsent. */
-function Typing() {
-  const dots = useRef([0, 1, 2].map(() => new Animated.Value(0.3))).current;
+type Activity = Extract<FeedItem, { kind: "activity" }>;
+type Block = { kind: "item"; item: FeedItem } | { kind: "steps"; id: string; items: Activity[] };
+
+/** Les étapes consécutives (outils, recherches) sont regroupées sur une seule ligne repliable. */
+function group(feed: FeedItem[]): Block[] {
+  const out: Block[] = [];
+  for (const f of feed) {
+    const last = out[out.length - 1];
+    if (f.kind === "activity") {
+      if (last?.kind === "steps") last.items.push(f);
+      else out.push({ kind: "steps", id: `steps-${f.id}`, items: [f] });
+    } else out.push({ kind: "item", item: f });
+  }
+  return out;
+}
+
+/** Ce que l'agent est en train de faire, affiché pendant qu'il travaille. */
+function liveLabel(feed: FeedItem[]) {
+  const last = feed[feed.length - 1];
+  if (last?.kind === "activity") return /^Recherche sur le web/.test(last.label) ? "Lecture des résultats" : "Analyse des résultats";
+  if (last?.kind === "proposal" && last.status === "done") return "Suite de l'action";
+  return "Réflexion";
+}
+
+const modelName = (m?: string) => (!m ? undefined : /opus/.test(m) ? "Opus" : /sonnet/.test(m) ? "Sonnet" : /haiku/.test(m) ? "Haiku" : undefined);
+
+/** Indicateur de travail : un point qui pulse et l'étape en cours, comme dans ChatGPT ou Claude. */
+function Thinking({ label }: { label: string }) {
+  const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const loop = Animated.loop(
-      Animated.stagger(
-        160,
-        dots.map((d) => Animated.sequence([Animated.timing(d, { toValue: 1, duration: 300, easing: Easing.out(Easing.quad), useNativeDriver: true }), Animated.timing(d, { toValue: 0.3, duration: 300, useNativeDriver: true })])),
-      ),
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 650, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 650, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      ]),
     );
     loop.start();
     return () => loop.stop();
   }, []);
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 18 }} accessibilityLabel="L'agent travaille" accessibilityLiveRegion="polite">
-      <KeyoMark size={24} />
-      <View style={{ flexDirection: "row", gap: 5 }}>
-        {dots.map((d, i) => (
-          <Animated.View key={i} style={{ width: 7, height: 7, borderRadius: 7, backgroundColor: color.inkMuted, opacity: d }} />
-        ))}
-      </View>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 16 }} accessibilityLabel={`L'agent travaille : ${label}`} accessibilityLiveRegion="polite">
+      <Animated.View
+        style={{
+          width: 12,
+          height: 12,
+          borderRadius: 12,
+          backgroundColor: color.mint,
+          opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.45, 1] }),
+          transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.8, 1.15] }) }],
+        }}
+      />
+      <Animated.Text style={{ fontFamily: fontFamily.medium, fontSize: 14, color: color.inkMuted, opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }) }}>
+        {label}…
+      </Animated.Text>
     </View>
   );
 }
 
-function ActionIcon({ icon: Icon, label, onPress, disabled }: { icon: LucideIcon; label: string; onPress: () => void; disabled?: boolean }) {
+/** Étapes de l'agent : repliées en une ligne (« 3 étapes »), dépliables pour le détail. */
+function Steps({ items, live }: { items: Activity[]; live: boolean }) {
+  const [open, setOpen] = useState(false);
+  const failed = items.some((a) => !a.ok);
+  const single = items.length === 1;
+  const Chevron = open ? ChevronDown : ChevronRight;
   return (
-    <Pressable onPress={onPress} disabled={disabled} hitSlop={10} accessibilityRole="button" accessibilityLabel={label} style={({ pressed }) => ({ opacity: disabled ? 0.3 : pressed ? 0.5 : 1 })}>
-      <Icon size={18} strokeWidth={1.8} color={color.inkMuted} />
+    <View style={{ marginTop: 12 }}>
+      <Pressable
+        onPress={() => !single && setOpen((o) => !o)}
+        accessibilityRole={single ? undefined : "button"}
+        accessibilityState={single ? undefined : { expanded: open }}
+        style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", maxWidth: "100%", opacity: pressed ? 0.6 : 1 })}
+      >
+        {failed ? <CircleAlert size={15} strokeWidth={1.8} color={color.danger} /> : <Check size={15} strokeWidth={2} color={color.mintDeep} />}
+        <Text variant="caption" tone="inkMuted" numberOfLines={1} style={{ flexShrink: 1, fontFamily: fontFamily.semibold }}>
+          {single ? items[0]!.label : `${items.length} étapes${live || open ? "" : ` · ${items[items.length - 1]!.label}`}`}
+        </Text>
+        {!single && <Chevron size={15} strokeWidth={1.8} color={color.inkMuted} />}
+      </Pressable>
+      {open && !single && (
+        <View style={{ marginTop: 8, marginLeft: 7, paddingLeft: 13, borderLeftWidth: 1.5, borderLeftColor: color.line, gap: 7 }}>
+          {items.map((a) => (
+            <View key={a.id} style={{ flexDirection: "row", gap: 6, alignItems: "flex-start" }}>
+              <View style={{ width: 7, height: 7, borderRadius: 7, marginTop: 5, backgroundColor: a.ok ? color.dotPaid : color.dotDanger }} />
+              <Text variant="caption" tone="inkMuted" style={{ flex: 1 }}>
+                {a.label}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+/** Texte qui s'écrit progressivement (environ une seconde), comme une réponse en direct. */
+function useReveal(text: string, animateOnMount: boolean) {
+  // Décidé à l'apparition du message : les rendus suivants ne coupent pas l'animation.
+  const animate = useRef(animateOnMount).current;
+  const [n, setN] = useState(animate ? 0 : text.length);
+  useEffect(() => {
+    if (!animate) return setN(text.length);
+    const step = Math.max(3, Math.ceil(text.length / 70));
+    const t = setInterval(
+      () =>
+        setN((x) => {
+          if (x >= text.length) {
+            clearInterval(t);
+            return x;
+          }
+          // Couper en fin de mot pour ne pas afficher de mot tronqué.
+          const next = text.indexOf(" ", x + step);
+          return next === -1 ? text.length : next;
+        }),
+      16,
+    );
+    return () => clearInterval(t);
+  }, [text, animate]);
+  return { shown: text.slice(0, n), done: n >= text.length };
+}
+
+function ActionIcon({ icon: Icon, label, onPress, disabled, active }: { icon: LucideIcon; label: string; onPress: () => void; disabled?: boolean; active?: boolean }) {
+  return (
+    <Pressable onPress={onPress} disabled={disabled} hitSlop={10} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ selected: active }} style={({ pressed }) => ({ opacity: disabled ? 0.3 : pressed ? 0.5 : 1 })}>
+      <Icon size={17} strokeWidth={1.8} color={active ? color.ink : color.inkMuted} fill={active ? color.mintTint : "transparent"} />
     </Pressable>
+  );
+}
+
+function AgentMessage({ item, busy, isLastAgent, animate, grouped }: { item: Extract<FeedItem, { kind: "agent" }>; busy: boolean; isLastAgent: boolean; animate: boolean; grouped: boolean }) {
+  const sources = item.text
+    .split("\n")
+    .filter((l) => /^sources\s*:/i.test(l.trim()))
+    .join(" ");
+  const body = clean(item.text);
+  const { shown, done } = useReveal(body, animate);
+  const model = modelName(item.model);
+  return (
+    <View style={{ marginTop: grouped ? 10 : 18, gap: 10 }}>
+      <Markdown text={shown} />
+      {done && item.link && (
+        <Pressable
+          onPress={() => router.push(item.link!.href as never)}
+          accessibilityRole="button"
+          style={({ pressed }) => ({ alignSelf: "flex-start", height: 44, paddingHorizontal: 18, borderRadius: 999, justifyContent: "center", backgroundColor: color.surfaceRaised, borderWidth: 1.5, borderColor: color.mint, opacity: pressed ? 0.7 : 1 })}
+        >
+          <Text variant="rowTitle">{item.link.label}</Text>
+        </Pressable>
+      )}
+      {done && sources ? (
+        <Text variant="caption" tone="inkMuted" numberOfLines={2}>
+          {sources}
+        </Text>
+      ) : null}
+      {done && (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 18 }}>
+          <ActionIcon icon={Copy} label="Copier ou partager" onPress={() => share(body)} />
+          <ActionIcon icon={ThumbsUp} label="Bonne réponse" active={item.feedback === "up"} onPress={() => conversation.rate(item.id, "up")} />
+          <ActionIcon icon={ThumbsDown} label="Mauvaise réponse" active={item.feedback === "down"} onPress={() => conversation.rate(item.id, "down")} />
+          <ActionIcon icon={Volume2} label="Lire à voix haute" onPress={() => speak(item.text)} />
+          {isLastAgent && <ActionIcon icon={RefreshCw} label="Régénérer la réponse" onPress={() => conversation.regenerate()} disabled={busy} />}
+          {model && (
+            <Text variant="caption" tone="inkMuted" style={{ marginLeft: "auto" }} accessibilityLabel={`Réponse du modèle ${model}`}>
+              {model}
+            </Text>
+          )}
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -495,18 +695,20 @@ function Item({
   busy,
   prev,
   isLastAgent,
+  animate,
   onUserMenu,
 }: {
   item: FeedItem;
   busy: boolean;
-  prev?: FeedItem;
+  prev?: FeedItem["kind"] | "steps";
   isLastAgent: boolean;
+  animate: boolean;
   onUserMenu: (u: Extract<FeedItem, { kind: "user" }>) => void;
 }) {
   switch (item.kind) {
     case "user":
       return (
-        <Pressable onLongPress={() => onUserMenu(item)} delayLongPress={300} style={{ alignItems: "flex-end", marginTop: 22, gap: 6 }} accessibilityHint="Appui long pour modifier ou copier">
+        <Pressable onLongPress={() => onUserMenu(item)} delayLongPress={300} style={{ alignItems: "flex-end", marginTop: 26, gap: 6 }} accessibilityHint="Appui long pour modifier ou copier">
           {item.attachments?.map((a) =>
             a.kind === "image" ? (
               <Image key={a.id} source={{ uri: a.uri }} style={{ width: 180, height: 180, borderRadius: 20, backgroundColor: color.surfaceSoft }} accessibilityLabel={a.name} />
@@ -515,96 +717,47 @@ function Item({
             ),
           )}
           {item.text ? (
-            <View style={{ maxWidth: "82%", backgroundColor: color.night, borderRadius: 22, borderBottomRightRadius: 6, paddingHorizontal: 16, paddingVertical: 11 }}>
-              <Text variant="body" tone="onNight">
-                {item.text}
-              </Text>
+            <View style={{ maxWidth: "82%", backgroundColor: color.surfaceSoft, borderRadius: 22, paddingHorizontal: 16, paddingVertical: 11 }}>
+              <Text variant="body">{item.text}</Text>
             </View>
           ) : null}
         </Pressable>
       );
-    case "agent": {
-      const lines = item.text.split("\n");
-      const sources = lines.filter((l) => /^sources\s*:/i.test(l.trim())).join(" ");
-      const body = clean(item.text);
-      const grouped = prev?.kind === "agent" || prev?.kind === "activity" || prev?.kind === "proposal";
-      return (
-        <View style={{ marginTop: grouped ? 10 : 22, flexDirection: "row", gap: 10 }}>
-          <View style={{ width: 24 }}>{!grouped && <KeyoMark size={24} />}</View>
-          <View style={{ flex: 1, gap: 8 }}>
-            <Markdown text={body} />
-            {item.link && (
-              <Pressable
-                onPress={() => router.push(item.link!.href as never)}
-                accessibilityRole="button"
-                style={({ pressed }) => ({ alignSelf: "flex-start", height: 44, paddingHorizontal: 18, borderRadius: 999, justifyContent: "center", backgroundColor: color.surfaceRaised, borderWidth: 1.5, borderColor: color.mint, opacity: pressed ? 0.7 : 1 })}
-              >
-                <Text variant="rowTitle">{item.link.label}</Text>
-              </Pressable>
-            )}
-            {sources ? (
-              <Text variant="caption" tone="inkMuted" numberOfLines={2}>
-                {sources}
-              </Text>
-            ) : null}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 18, marginTop: 2 }}>
-              <ActionIcon icon={Copy} label="Copier ou partager" onPress={() => share(body)} />
-              <ActionIcon icon={Volume2} label="Lire à voix haute" onPress={() => speak(item.text)} />
-              {isLastAgent && <ActionIcon icon={RefreshCw} label="Régénérer la réponse" onPress={() => conversation.regenerate()} disabled={busy} />}
-            </View>
-          </View>
-        </View>
-      );
-    }
+    case "agent":
+      return <AgentMessage item={item} busy={busy} isLastAgent={isLastAgent} animate={animate} grouped={prev === "steps" || prev === "proposal" || prev === "agent"} />;
     case "activity":
-      return (
-        <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
-          <View style={{ width: 24 }}>{prev?.kind !== "agent" && prev?.kind !== "activity" && <KeyoMark size={24} />}</View>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: color.surfaceRaised, maxWidth: "100%" }}>
-            {item.ok ? <Check size={14} strokeWidth={2} color={color.mintDeep} /> : <CircleAlert size={14} strokeWidth={1.8} color={color.danger} />}
-            <Text variant="caption" tone="inkMuted" numberOfLines={2} style={{ flexShrink: 1 }}>
-              {item.label}
-            </Text>
-          </View>
-        </View>
-      );
+      return null;
     case "proposal": {
       const pending = item.status === "pending";
       return (
-        <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
-          <View style={{ width: 24 }} />
-          <View style={{ flex: 1, backgroundColor: color.surfaceRaised, borderRadius: radius.card, padding: 16, gap: 12, borderWidth: 1.5, borderColor: pending ? color.mint : color.line }}>
-            <Text variant="caption" tone="inkMuted" style={{ fontFamily: fontFamily.bold }}>
-              {pending ? "Votre accord" : item.status === "done" ? "Fait" : item.status === "declined" ? "Refusé" : "Échec"}
-            </Text>
-            <Text variant="rowTitle">{item.description}</Text>
-            {pending ? (
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                <Pill label="Refuser" onPress={() => conversation.decide(item.id, false)} disabled={busy} />
-                <Pill label="Confirmer" strong onPress={() => conversation.decide(item.id, true)} disabled={busy} />
-              </View>
-            ) : item.result ? (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <View style={{ width: 7, height: 7, borderRadius: 7, backgroundColor: item.status === "done" ? color.dotPaid : color.dotDanger }} />
-                <Text variant="caption" tone="inkMuted" style={{ flex: 1 }}>
-                  {item.result}
-                </Text>
-              </View>
-            ) : null}
-          </View>
+        <View style={{ marginTop: 14, backgroundColor: color.surfaceRaised, borderRadius: radius.card, padding: 16, gap: 12, borderWidth: 1.5, borderColor: pending ? color.mint : color.line }}>
+          <Text variant="caption" tone="inkMuted" style={{ fontFamily: fontFamily.bold }}>
+            {pending ? "Votre accord" : item.status === "done" ? "Fait" : item.status === "declined" ? "Refusé" : "Échec"}
+          </Text>
+          <Text variant="rowTitle">{item.description}</Text>
+          {pending ? (
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <Pill label="Refuser" onPress={() => conversation.decide(item.id, false)} disabled={busy} />
+              <Pill label="Confirmer" strong onPress={() => conversation.decide(item.id, true)} disabled={busy} />
+            </View>
+          ) : item.result ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <View style={{ width: 7, height: 7, borderRadius: 7, backgroundColor: item.status === "done" ? color.dotPaid : color.dotDanger }} />
+              <Text variant="caption" tone="inkMuted" style={{ flex: 1 }}>
+                {item.result}
+              </Text>
+            </View>
+          ) : null}
         </View>
       );
     }
     case "error":
       return (
-        <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
-          <View style={{ width: 24 }} />
-          <View style={{ flex: 1, flexDirection: "row", gap: 8, padding: 12, borderRadius: 16, backgroundColor: color.dangerTint }}>
-            <CircleAlert size={18} strokeWidth={1.8} color={color.danger} />
-            <Text variant="rowSubtitle" tone="danger" style={{ flex: 1 }}>
-              {item.text}
-            </Text>
-          </View>
+        <View style={{ marginTop: 14, flexDirection: "row", gap: 8, padding: 12, borderRadius: 16, backgroundColor: color.dangerTint }}>
+          <CircleAlert size={18} strokeWidth={1.8} color={color.danger} />
+          <Text variant="rowSubtitle" tone="danger" style={{ flex: 1 }}>
+            {item.text}
+          </Text>
         </View>
       );
   }

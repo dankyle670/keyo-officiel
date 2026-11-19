@@ -33,13 +33,11 @@ test("tour : modèle, outils mis en cache, repli serveur, historique transmis te
   const res = await svc.turn({ messages: history, context });
   assert.equal(res?.stop_reason, "end_turn");
   const p = calls[0]!;
-  // « Mes loyers ? » : demande courante, Sonnet, qui peut consulter Opus.
-  assert.equal(p.model, "claude-sonnet-5-5");
-  assert.equal(res?.tier, "standard");
-  assert.ok(p.tools.some((t: any) => t.type === "advisor_20260301" && t.model === "claude-opus-5-5"));
-  assert.ok(p.betas.includes("advisor-tool-2026-03-01"));
-  assert.deepEqual(p.thinking, { type: "adaptive" });
-  assert.equal(p.fallbacks, "default");
+  // Demande en cours qui n'a lu que des loyers : palier léger (Haiku), sans bascule serveur.
+  assert.equal(p.model, "claude-haiku-5-5");
+  assert.equal(res?.tier, "FAST");
+  assert.ok(p.tools.some((t: any) => t.name === "switch_model"));
+  assert.deepEqual(p.thinking, { type: "adaptive", block_binding: { prefix_mismatch_behavior: "drop_block" } });
   assert.deepEqual(p.messages, history);
   assert.ok(p.tools.length >= 15);
   assert.deepEqual(p.tools.at(-1).cache_control, { type: "ephemeral" });

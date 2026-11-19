@@ -18,7 +18,8 @@ import { describeAction, executeTool, turnContext } from "./tools";
 export type FeedItem =
   /** `hist` : longueur de l'historique Claude avant ce message (pour régénérer ou modifier). */
   | { id: string; kind: "user"; text: string; attachments?: AttachmentRef[]; hist?: number }
-  | { id: string; kind: "agent"; text: string; link?: { label: string; href: string } }
+  /** `feedback` : avis du propriétaire sur la réponse, relu par l'équipe côté serveur. */
+  | { id: string; kind: "agent"; text: string; link?: { label: string; href: string }; model?: string; feedback?: "up" | "down" }
   | { id: string; kind: "activity"; label: string; ok: boolean }
   | { id: string; kind: "proposal"; toolUseId: string; name: string; input: Record<string, unknown>; description: string; status: "pending" | "done" | "declined" | "failed"; result?: string }
   | { id: string; kind: "error"; text: string };
@@ -135,9 +136,9 @@ export function speak(text: string) {
   Speech.speak(clean, { language: "fr-FR", rate: 1.0 });
 }
 
-function sayAgent(text: string, link?: { label: string; href: string }) {
+function sayAgent(text: string, link?: { label: string; href: string }, model?: string) {
   if (!text.trim()) return;
-  push({ id: id(), kind: "agent", text: text.trim(), link });
+  push({ id: id(), kind: "agent", text: text.trim(), link, model });
   if (getSettings().agentSpeaks) speak(text);
 }
 
@@ -157,14 +158,19 @@ const checkStopped = () => {
   if (current?.signal.aborted) throw new Stopped();
 };
 
+/** Palier de modèle atteint dans la demande en cours (choisi par l'agent selon ses actions). */
+let turnTier: "FAST" | "STANDARD" | "EXPERT" | undefined;
+
 /** Un ou plusieurs tours avec Claude, jusqu'à une réponse finale ou une confirmation attendue. */
 async function runClaude(steps = 0): Promise<void> {
   if (steps >= MAX_STEPS) {
     push({ id: id(), kind: "error", text: "L'agent a enchaîné trop d'étapes. Reformulez votre demande." });
     return;
   }
-  const res = await postTurn(state.history, turnContext(), current?.signal);
+  if (steps === 0) turnTier = undefined;
+  const res = await postTurn(state.history, turnContext(), current?.signal, turnTier);
   checkStopped();
+  turnTier = res.tier ?? turnTier;
   set({ history: [...state.history, { role: "assistant", content: res.content as Record<string, unknown>[] }] });
 
   if (res.stop_reason === "refusal") {
@@ -172,7 +178,7 @@ async function runClaude(steps = 0): Promise<void> {
     return;
   }
   const text = res.content.filter((b): b is { type: "text"; text: string } => b.type === "text").map((b) => b.text).join("\n");
-  sayAgent(text);
+  sayAgent(text, undefined, res.model);
   if (res.stop_reason === "max_tokens") push({ id: id(), kind: "error", text: "Réponse interrompue : elle était trop longue." });
   // Recherches sur le web (outil serveur de Claude) : affichées comme les autres activités.
   for (const b of res.content) {
@@ -180,7 +186,6 @@ async function runClaude(steps = 0): Promise<void> {
       const q = (b.input as { query?: string } | undefined)?.query;
       push({ id: id(), kind: "activity", label: `Recherche sur le web${q ? ` : ${q}` : ""}`, ok: true });
     }
-    if (b.type === "server_tool_use" && b.name === "advisor") push({ id: id(), kind: "activity", label: "Avis demandé au modèle expert", ok: true });
   }
   // Recherche longue mise en pause par le serveur : on renvoie tel quel pour qu'il reprenne.
   if (res.stop_reason === "pause_turn") {
@@ -197,7 +202,7 @@ async function runClaude(steps = 0): Promise<void> {
       continue;
     }
     const out = await executeTool(u.name, u.input);
-    push({ id: id(), kind: "activity", label: out.ok ? `${labelOf(u.name)} : ${out.summary}` : `${labelOf(u.name)} : échec`, ok: out.ok });
+    if (u.name !== "switch_model") push({ id: id(), kind: "activity", label: out.ok ? `${labelOf(u.name)} : ${out.summary}` : `${labelOf(u.name)} : échec`, ok: out.ok });
     record(u.id, out.ok ? { content: JSON.stringify(out.result) } : { content: out.error, is_error: true });
     checkStopped();
   }
@@ -309,6 +314,11 @@ export const conversation = {
   },
 
   /** Refait la dernière réponse de l'agent (les photos et PDF ne sont pas renvoyés). */
+  /** Pouce levé ou baissé sur une réponse (un second appui retire l'avis). */
+  rate(itemId: string, v: "up" | "down") {
+    set({ feed: state.feed.map((f) => (f.id === itemId && f.kind === "agent" ? { ...f, feedback: f.feedback === v ? undefined : v } : f)) });
+  },
+
   async regenerate() {
     if (state.busy || state.pending) return;
     const i = lastUserIndex();

@@ -19,7 +19,7 @@ export type ContentBlock =
   | { type: "text"; text: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
   | { type: string; [k: string]: unknown };
-export type TurnResponse = { content: ContentBlock[]; stop_reason: string | null };
+export type TurnResponse = { content: ContentBlock[]; stop_reason: string | null; model?: string; tier?: "FAST" | "STANDARD" | "EXPERT" };
 export type OpsReview = { verdict: string; priorities: { findingId: string; why: string; nextStep: string }[] };
 
 export class AgentUnavailable extends Error {}
@@ -50,8 +50,9 @@ export async function agentMode(): Promise<{ mode: "claude" | "demo"; reachable:
   }
 }
 
-export const postTurn = (messages: ApiMessage[], context: TurnContext, signal?: AbortSignal) =>
-  call<TurnResponse>("/agent/turn", { method: "POST", body: JSON.stringify({ messages, context }), signal });
+/** `tier` : palier de modèle déjà atteint dans la demande en cours (le serveur ne redescend pas). */
+export const postTurn = (messages: ApiMessage[], context: TurnContext, signal?: AbortSignal, tier?: TurnResponse["tier"]) =>
+  call<TurnResponse>("/agent/turn", { method: "POST", body: JSON.stringify({ messages, context, tier }), signal });
 
 export const postOps = (findings: AuditFinding[], score: number, context: TurnContext) =>
   call<OpsReview>("/agent/ops", {

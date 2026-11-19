@@ -528,6 +528,8 @@ const EXECUTORS: { [N in AgentToolName]: Executor<N> } = {
 };
 
 export async function executeTool(name: string, rawInput: unknown): Promise<ToolOutcome> {
+  // Le serveur change lui-même de modèle ; s'il renvoie cet appel, le modèle en cours suffit.
+  if (name === "switch_model") return ok({ continue: true, note: "Vous êtes déjà sur le modèle adapté : poursuivez." }, "Modèle adapté");
   if (!isAgentTool(name)) return fail(`Outil inconnu : ${name}`);
   const parsed = AGENT_TOOLS[name].input.safeParse(rawInput ?? {});
   if (!parsed.success) return fail(`Entrée invalide : ${parsed.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join("; ")}`);

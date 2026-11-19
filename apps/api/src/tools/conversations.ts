@@ -19,7 +19,7 @@ for (const o of await store.owners()) {
     for (const f of c.feed) {
       const t = f as Record<string, any>;
       if (t.kind === "user") console.log(`\n[PROPRIÉTAIRE] ${t.text}`);
-      else if (t.kind === "agent") console.log(`\n[KEYO] ${t.text}`);
+      else if (t.kind === "agent") console.log(`\n[KEYO${t.model ? ` · ${t.model}` : ""}${t.feedback ? ` · avis ${t.feedback === "up" ? "positif" : "négatif"}` : ""}] ${t.text}`);
       else if (t.kind === "activity") console.log(`  · ${t.label}`);
       else if (t.kind === "proposal") console.log(`  [CARTE ${t.status}] ${t.description}${t.result ? ` → ${t.result}` : ""}`);
       else if (t.kind === "error") console.log(`  [ERREUR] ${t.text}`);

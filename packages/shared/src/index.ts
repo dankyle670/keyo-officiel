@@ -12,3 +12,4 @@ export * from "./audit.ts";
 export * from "./agent.ts";
 export * from "./autonomy.ts";
 export * from "./capabilities.ts";
+export * from "./model-tiers.ts";

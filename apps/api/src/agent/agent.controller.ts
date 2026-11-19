@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { Body, Controller, Get, HttpException, HttpStatus, Inject, Post } from "@nestjs/common";
+import { Body, Logger, Controller, Get, HttpException, HttpStatus, Inject, Post } from "@nestjs/common";
 import { AgentService, OpsBody, TurnBody } from "./agent.service.ts";
 
 const parse = <T>(schema: { safeParse: (v: unknown) => { success: true; data: T } | { success: false } }, body: unknown): T => {
@@ -9,10 +9,13 @@ const parse = <T>(schema: { safeParse: (v: unknown) => { success: true; data: T 
 };
 
 /** Erreurs de l'API Claude traduites pour l'app (sans jamais renvoyer la clé ni le détail brut). */
+const log = new Logger("Agent");
+
 function rethrow(e: unknown): never {
   if (e instanceof Anthropic.RateLimitError) throw new HttpException({ error: "L'agent est très sollicité, réessayez dans un instant." }, HttpStatus.TOO_MANY_REQUESTS);
   if (e instanceof Anthropic.AuthenticationError) throw new HttpException({ error: "Clé de l'agent invalide côté serveur." }, HttpStatus.SERVICE_UNAVAILABLE);
   if (e instanceof Anthropic.BadRequestError && /credit balance/i.test(e.message)) throw new HttpException({ error: "Crédit Claude épuisé : rechargez le compte sur console.anthropic.com, rubrique Billing." }, HttpStatus.PAYMENT_REQUIRED);
+  if (e instanceof Anthropic.APIError) log.warn(`Claude ${e.status ?? ""} : ${e.message.slice(0, 500)}`);
   if (e instanceof Anthropic.BadRequestError) throw new HttpException({ error: "Conversation trop longue ou invalide, recommencez une conversation." }, HttpStatus.BAD_REQUEST);
   if (e instanceof Anthropic.APIError) throw new HttpException({ error: "L'agent est momentanément indisponible." }, HttpStatus.BAD_GATEWAY);
   throw e;
