@@ -56,9 +56,10 @@ Le symbole est une **serrure** menthe dans un carré bleu nuit arrondi : la clé
 
 Keyo est un produit de **DK Group**. La signature apparaît sur l'écran de démarrage, à la fin des vidéos, sur le site et dans les documents commerciaux, jamais dans les écrans de travail de l'app.
 
-- **Signature discrète, sur une ligne** : « UN PRODUIT » (petites capitales espacées) suivi du **symbole DK seul**, à 70 % d'opacité, en bas et centré.
+- **Dans l'app (écran de démarrage)** : le **symbole DK seul**, sans texte, 28 px de large, à 50 % d'opacité, en bas et centré (décision du 19 novembre 2026).
+- **Vidéos, site et documents commerciaux** : « UN PRODUIT » (petites capitales espacées) suivi du symbole DK, à 70 % d'opacité.
 - Le symbole DK reste **monochrome** : blanc sur `night`, encre `#111121` sur fond clair. Jamais recoloré.
-- Largeur minimale de 40 px pour le symbole seul. Le logo complet DK + GROUP (100 px minimum) est réservé aux documents commerciaux.
+- Largeur minimale de 28 px pour le symbole seul (écran de démarrage), 40 px ailleurs. Le logo complet DK + GROUP (100 px minimum) est réservé aux documents commerciaux.
 
 ## Style des maquettes (refonte du 18 novembre 2026)
 

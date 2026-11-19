@@ -44,7 +44,7 @@ Le développement se fait sous Linux : pas de simulateur iOS. On teste sur un iP
 - Icônes Lucide au trait (24 px, trait 1,8).
 - Boutons et champs en pilule (56 px de haut), cartes 26 à 32 px de rayon, fond d'écran `#F3F6F9`.
 - Navigation iPhone : barre flottante `night` en pilule, onglet actif `mint` avec libellé.
-- Signature DK Group uniquement sur l'écran de démarrage.
+- Signature DK Group uniquement sur l'écran de démarrage : symbole DK seul, sans texte, petit et discret.
 - Textes en français, vouvoiement, sans emoji, ton clair et calme. i18n prête pour l'anglais.
 
 ## Méthode
