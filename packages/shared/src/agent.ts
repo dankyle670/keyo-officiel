@@ -63,6 +63,19 @@ export const AGENT_TOOLS = {
       "Lance le contrôle de gestion : pièces manquantes, fiscalité, retards, contrats qui se terminent, incidents bloqués, entretien. Renvoie les points à traiter, classés par gravité. À utiliser pour « est-ce que tout est en ordre ? ».",
     input: z.object({}),
   },
+  get_valuation: {
+    kind: "read",
+    label: "Évaluation des biens",
+    description:
+      "Évaluation indicative d'un bien (assetId) ou de tous : valeur globale et par unité, méthode (revenu capitalisé au rendement de référence, prix d'achat), fourchette, fiabilité, documents disponibles et ce qui manque. Pour affiner, appuyez-vous sur les documents joints (expertise, titre, photos) et expliquez votre raisonnement ; ne présentez jamais une valeur comme certaine.",
+    input: z.object({ assetId: z.string().optional() }),
+  },
+  get_patrimony: {
+    kind: "read",
+    label: "Patrimoine familial",
+    description: "Valeur du patrimoine, part de chaque membre de la famille (propriétaire et proches invités), biens de famille et leurs parts, état des invitations.",
+    input: z.object({}),
+  },
   file_document: {
     kind: "write",
     risk: "low",
@@ -155,6 +168,40 @@ export const AGENT_TOOLS = {
     label: "Modification d'une unité",
     description: "Renomme une unité (logement, parcelle, véhicule…) ou change le montant demandé pour le prochain occupant.",
     input: z.object({ unitId: z.string(), label: z.string().min(1).optional(), askingRent: minor.optional(), measure: z.number().positive().optional() }),
+  },
+  set_asset_value: {
+    kind: "write",
+    risk: "low",
+    label: "Valeur d'un bien",
+    description: "Enregistre la valeur estimée d'un bien et, si utile, celle de chaque unité. Sert au patrimoine et à la part de chacun.",
+    input: z.object({
+      assetId: z.string(),
+      value: minor,
+      unitValues: z.array(z.object({ unitId: z.string(), value: minor })).optional(),
+    }),
+  },
+  invite_family_member: {
+    kind: "write",
+    risk: "high",
+    label: "Invitation d'un proche",
+    description: "Ajoute un membre de la famille qui pourra suivre les biens et la valeur de sa part. access : VIEW (consulter) ou MANAGE (co-gérer). Téléphone au format international.",
+    input: z.object({
+      firstName: z.string().min(1),
+      lastName: z.string(),
+      phone: z.string().regex(/^\+\d{8,15}$/),
+      relation: z.string().describe("Conjoint, Enfant, Frère, Sœur, Mère, Père, Cousin, Autre"),
+      access: z.enum(["VIEW", "MANAGE"]).default("VIEW"),
+    }),
+  },
+  set_family_shares: {
+    kind: "write",
+    risk: "high",
+    label: "Parts d'un bien de famille",
+    description: "Déclare un bien comme bien de famille et fixe les parts en pour mille (total 1000). holderId : l'identifiant du propriétaire (ownerId) ou d'un proche (get_patrimony).",
+    input: z.object({
+      assetId: z.string(),
+      shares: z.array(z.object({ holderId: z.string(), sharePermille: z.number().int().min(1).max(1000) })).min(1),
+    }),
   },
   send_reminder: {
     kind: "write",

@@ -59,6 +59,11 @@ export default function RootLayout() {
             <Stack.Screen name="bien/[id]/depense" options={{ presentation: "modal" }} />
             <Stack.Screen name="bien/[id]/inviter" options={{ presentation: "modal" }} />
             <Stack.Screen name="bien/[id]/modifier" options={{ presentation: "modal" }} />
+            <Stack.Screen name="bien/[id]/evaluation" />
+            <Stack.Screen name="famille/index" />
+            <Stack.Screen name="famille/inviter" options={{ presentation: "modal" }} />
+            <Stack.Screen name="famille/[id]/index" />
+            <Stack.Screen name="famille/[id]/espace" />
             <Stack.Screen name="bail/[id]/modifier" options={{ presentation: "modal" }} />
             <Stack.Screen name="bail/[id]/index" />
             <Stack.Screen name="incident/[id]" />

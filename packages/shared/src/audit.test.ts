@@ -105,3 +105,9 @@ test("véhicule : carte grise attendue, ni état des lieux ni enregistrement", (
   assert.ok(!r.findings.some((f) => f.id.startsWith("doc-inventory") || f.id.startsWith("fiscal-registration")));
   assert.equal(r.findings.find((f) => f.id === "doc-title-a1")?.title, "Carte grise non classée");
 });
+
+test("bien de famille : parts qui ne font pas 100 %", () => {
+  const fam = { ...asset("a1", "CI"), holding: "FAMILY" as const };
+  const r = runAudit(base({ assets: [fam], shares: [{ assetId: "a1", holderId: "owner", sharePermille: 500 }, { assetId: "a1", holderId: "p9", sharePermille: 300 }] }));
+  assert.match(r.findings.find((f) => f.id === "family-shares-a1")?.detail ?? "", /80 %/);
+});

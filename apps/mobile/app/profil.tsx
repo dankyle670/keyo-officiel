@@ -1,6 +1,6 @@
 import { Alert, View } from "react-native";
 import { router } from "expo-router";
-import { Bell, Bot, CircleHelp, Database, FileText, Fingerprint, Send, SlidersHorizontal, UserRound, Wallet } from "lucide-react-native";
+import { Bell, Bot, CircleHelp, Database, FileText, Fingerprint, Send, SlidersHorizontal, UserRound, Wallet, Users } from "lucide-react-native";
 import { currencyLabel } from "@keyo/shared";
 import { initialsOf } from "@/data/selectors";
 import { session, useSettings, useUser } from "@/data/session";
@@ -15,6 +15,7 @@ export default function Profile() {
   const user = useUser();
   const settings = useSettings();
   const assetCount = useOwnerState((s) => s.assets.length);
+  const familyCount = useOwnerState((s) => s.parties.filter((p) => p.role === "FAMILY").length);
   const name = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim();
   const notifOn = Object.values(settings.notifications).filter(Boolean).length;
   const notifTotal = Object.values(settings.notifications).length;
@@ -44,6 +45,7 @@ export default function Profile() {
       </SettingsGroup>
 
       <SettingsGroup title="Gestion">
+        <NavRow icon={Users} tint="mintTint" ink="mintDeep" title="Famille et patrimoine" value={familyCount ? `${familyCount} proche${familyCount > 1 ? "s" : ""}` : "Inviter"} onPress={() => router.push("/famille")} />
         <NavRow icon={Send} tint="amberTint" ink="amber" title="Relances" value={user.autoReminders ? "Automatiques" : "Désactivées"} onPress={() => open("relances")} />
         <NavRow icon={Wallet} tint="amberTint" ink="amber" title="Encaissement" value={methods || "Aucun moyen"} onPress={() => open("encaissement")} />
         <NavRow icon={Bot} tint="amberTint" ink="amber" title="Agent Keyo" value={settings.agentConfirm === "ALWAYS" ? "Accord à chaque action" : "Accord pour l'argent"} onPress={() => open("agent")} />

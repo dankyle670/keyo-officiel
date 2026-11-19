@@ -16,6 +16,7 @@ const GROUPS: { kind: Kind; title: string; icon: LucideIcon }[] = [
   { kind: "RECEIPT", title: "Quittances", icon: Receipt },
   { kind: "INVOICE", title: "Factures", icon: FileText },
   { kind: "PHOTO", title: "Photos", icon: ImageIcon },
+  { kind: "APPRAISAL", title: "Expertises et avis de valeur", icon: Landmark },
 ];
 const ADD_LABEL: Partial<Record<Kind, string>> = {
   TITLE_DEED: "Titre foncier ou ACD",
@@ -23,6 +24,7 @@ const ADD_LABEL: Partial<Record<Kind, string>> = {
   INVENTORY: "État des lieux",
   INVOICE: "Facture",
   PHOTO: "Photo",
+  APPRAISAL: "Rapport d'expertise",
 };
 
 /** Coffre-fort du bien : titre foncier ou ACD, baux, quittances, factures, photos. */

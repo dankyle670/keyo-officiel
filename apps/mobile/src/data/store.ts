@@ -7,6 +7,8 @@ import {
   profileOf,
   type Agreement,
   type Asset,
+  type AssetShare,
+  type Holding,
   type AssetEvent,
   type AssetUnit,
   type Document,
@@ -58,6 +60,8 @@ export type OwnerState = {
   messages: Message[];
   maintenance: MaintenancePlan[];
   missions: Mission[];
+  /** Parts des biens de famille. */
+  shares: AssetShare[];
   notificationsReadAt: string;
 };
 
@@ -146,6 +150,7 @@ export const actions = {
         documents: s.documents.filter((d) => d.assetId !== assetId),
         maintenance: s.maintenance.filter((m) => m.assetId !== assetId),
         missions: s.missions.filter((m) => m.assetId !== assetId),
+        shares: s.shares.filter((x) => x.assetId !== assetId),
       };
     });
   },
@@ -197,7 +202,41 @@ export const actions = {
     return { agreementId, partyId };
   },
 
-  updateAsset(assetId: string, patch: { name?: string; address?: string; city?: string; details?: Record<string, unknown> }) {
+  /** Bien personnel ou de famille, et ses parts (remplacées en bloc). */
+  setHolding(assetId: string, holding: Holding, shares: { holderId: string; sharePermille: number }[] = []) {
+    setState((s) => ({
+      ...s,
+      assets: s.assets.map((a) => (a.id === assetId ? { ...a, holding } : a)),
+      shares: [...s.shares.filter((x) => x.assetId !== assetId), ...(holding === "FAMILY" ? shares.filter((x) => x.sharePermille > 0).map((x) => ({ ...x, assetId })) : [])],
+    }));
+  },
+
+  /** Invite un proche à suivre les biens de la famille. L'invitation part par SMS (lien à usage unique côté API). */
+  inviteFamilyMember(input: { firstName: string; lastName: string; phone: string; relation: string; access: "VIEW" | "MANAGE" }): string {
+    const id = newId("p");
+    setState((s) => ({ ...s, parties: [...s.parties, { id, role: "FAMILY", ...input, invitedAt: nowIso() }] }));
+    return id;
+  },
+
+  updateFamilyMember(partyId: string, patch: { relation?: string; access?: "VIEW" | "MANAGE"; invitedAt?: string }) {
+    setState((s) => ({ ...s, parties: s.parties.map((p) => (p.id === partyId ? { ...p, ...patch } : p)) }));
+  },
+
+  /** Retire un proche : ses parts reviennent au propriétaire, pour que chaque bien reste réparti à 100 %. */
+  removeFamilyMember(partyId: string) {
+    setState((s) => {
+      let shares = s.shares.filter((x) => x.holderId !== partyId);
+      for (const r of s.shares.filter((x) => x.holderId === partyId)) {
+        const owner = s.assets.find((a) => a.id === r.assetId)?.ownerId;
+        if (!owner) continue;
+        const i = shares.findIndex((y) => y.assetId === r.assetId && y.holderId === owner);
+        shares = i >= 0 ? shares.map((y, j) => (j === i ? { ...y, sharePermille: y.sharePermille + r.sharePermille } : y)) : [...shares, { assetId: r.assetId, holderId: owner, sharePermille: r.sharePermille }];
+      }
+      return { ...s, parties: s.parties.filter((p) => p.id !== partyId), shares };
+    });
+  },
+
+  updateAsset(assetId: string, patch: { name?: string; address?: string; city?: string; details?: Record<string, unknown>; value?: number | null }) {
     setState((s) => ({
       ...s,
       assets: s.assets.map((a) =>
@@ -208,6 +247,7 @@ export const actions = {
               name: patch.name ?? a.name,
               location: { ...a.location, address: patch.address ?? a.location.address, city: patch.city ?? a.location.city },
               details: patch.details ? { ...a.details, ...patch.details } : a.details,
+              value: patch.value === null ? undefined : patch.value !== undefined ? { amount: patch.value, currency: a.currency } : a.value,
             },
       ),
     }));

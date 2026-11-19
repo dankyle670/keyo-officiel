@@ -23,9 +23,16 @@ export const Location = z.object({
 });
 export type Location = z.infer<typeof Location>;
 
+/** Bien personnel, ou bien de famille détenu en parts (indivision). */
+export const Holding = z.enum(["PERSONAL", "FAMILY"]);
+export type Holding = z.infer<typeof Holding>;
+
 export const Asset = z.object({
   id: Id,
   ownerId: Id,
+  holding: Holding.optional(),
+  /** Valeur estimée actuelle ; à défaut, le prix d'achat sert de valeur. */
+  value: Money.optional(),
   type: AssetType,
   name: z.string().min(1),
   location: Location,
@@ -45,7 +52,7 @@ export const AssetUnit = z.object({
 });
 export type AssetUnit = z.infer<typeof AssetUnit>;
 
-export const PartyRole = z.enum(["OCCUPANT", "FIELD_MANAGER", "OPERATOR", "CRAFTSMAN"]);
+export const PartyRole = z.enum(["OCCUPANT", "FIELD_MANAGER", "OPERATOR", "CRAFTSMAN", "FAMILY"]);
 export type PartyRole = z.infer<typeof PartyRole>;
 
 export const Party = z.object({
@@ -54,8 +61,21 @@ export const Party = z.object({
   firstName: z.string(),
   lastName: z.string(),
   phone: z.string(),
+  /** Membre de la famille : lien de parenté, droits et état de l'invitation. */
+  relation: z.string().optional(),
+  access: z.enum(["VIEW", "MANAGE"]).optional(),
+  invitedAt: IsoDateTime.optional(),
+  joinedAt: IsoDateTime.optional(),
 });
 export type Party = z.infer<typeof Party>;
+
+/** Part d'un détenteur dans un bien de famille, en pour mille. Le détenteur est le propriétaire (son id) ou un membre (Party). */
+export const AssetShare = z.object({
+  assetId: Id,
+  holderId: Id,
+  sharePermille: z.number().int().min(1).max(1000),
+});
+export type AssetShare = z.infer<typeof AssetShare>;
 
 export const AgreementKind = z.enum(["LEASE", "MANAGEMENT", "OPERATION"]);
 export const Agreement = z.object({
@@ -153,6 +173,8 @@ export const DocumentKind = z.enum([
   "TAX_FILING",
   /** Preuve d'enregistrement d'un contrat auprès de l'administration fiscale. */
   "REGISTRATION",
+  /** Rapport d'expertise ou avis de valeur (notaire, expert, agence). */
+  "APPRAISAL",
 ]);
 export type DocumentKind = z.infer<typeof DocumentKind>;
 

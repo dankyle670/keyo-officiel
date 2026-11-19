@@ -115,5 +115,7 @@ export const GenericUnitDetails = z.object({
   capacity: z.number().int().positive().optional(),
   surfaceM2: z.number().positive().optional(),
   askingRent: z.number().int().nonnegative().optional(),
+  /** Valeur estimée de l'unité (unités mineures). */
+  value: z.number().int().nonnegative().optional(),
 });
 export type GenericUnitDetails = z.infer<typeof GenericUnitDetails>;

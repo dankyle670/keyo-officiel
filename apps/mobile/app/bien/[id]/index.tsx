@@ -2,8 +2,8 @@ import { useMemo, useState } from "react";
 import { Alert, Image, ScrollView, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ChevronLeft, DoorOpen, Ellipsis, FileText, MessageCircle, TrendingUp, UserPlus } from "lucide-react-native";
-import { cap, formatAmount, money, profileOf } from "@keyo/shared";
+import { ChevronLeft, DoorOpen, Ellipsis, FileText, Gem, MessageCircle, TrendingUp, UserPlus, Users } from "lucide-react-native";
+import { cap, CONFIDENCE_LABEL, formatAmount, formatShare, money, profileOf, valueAsset } from "@keyo/shared";
 import { color, radius } from "@keyo/tokens";
 import { eventIcon } from "@/data/icons";
 import { buildMarkers } from "@/data/markers";
@@ -38,6 +38,8 @@ export default function AssetDetail() {
       year,
       incidents: state.events.filter((e) => e.assetId === asset.id && isOpenEvent(e)),
       docs: state.documents.filter((d) => d.assetId === asset.id),
+      valuation: valueAsset({ asset, units: state.units, agreements: state.agreements, documents: state.documents, today: today() }),
+      holders: asset.holding === "FAMILY" ? state.shares.filter((x) => x.assetId === asset.id) : [],
       markers: buildMarkers(state, [asset], currentMonth(), today()).map((m) => ({ ...m, label: undefined, pin: null, x: 0.5, y: 0.55 })),
     };
   }, [state, asset]);
@@ -171,6 +173,23 @@ export default function AssetDetail() {
         <SectionTitle>Gestion</SectionTitle>
         <ListRow
           divider={false}
+          leading={<IconCircle icon={Gem} bg="mintTint" fg="mintDeep" />}
+          title="Évaluation"
+          subtitle={data.valuation.declared ? "Valeur retenue" : `Estimation Keyo, ${CONFIDENCE_LABEL[data.valuation.confidence].toLowerCase()}`}
+          trailing={(data.valuation.declared ?? data.valuation.suggested) ? <Amount value={(data.valuation.declared ?? data.valuation.suggested)!} variant="rowTitle" /> : undefined}
+          chevron={!(data.valuation.declared ?? data.valuation.suggested)}
+          onPress={() => router.push({ pathname: "/bien/[id]/evaluation", params: { id: asset.id } })}
+        />
+        {data.holders.length > 0 && (
+          <ListRow
+            leading={<IconCircle icon={Users} />}
+            title="Bien de famille"
+            subtitle={`${data.holders.length} propriétaires, ${data.holders.map((h) => formatShare(h.sharePermille)).join(" / ")}`}
+            chevron
+            onPress={() => router.push("/famille")}
+          />
+        )}
+        <ListRow
           leading={<IconCircle icon={FileText} />}
           title="Documents"
           subtitle={docLabels.length ? capitalizeList(docLabels) : "Ajoutez le titre foncier, l'ACD ou les factures"}

@@ -1,4 +1,5 @@
 import {
+  type AssetShare,
   addMonths,
   buildMonthlySchedule,
   dueStatus,
@@ -75,6 +76,21 @@ export function createDemoState(ownerId: string, now: string): OwnerState {
     party("p-koffi", "Koffi", "A.", "+2250700000007"),
     party("p-aminata", "Aminata", "S.", "+2250700000008"),
     { id: "p-gerant", role: "FIELD_MANAGER", firstName: "Serge", lastName: "K.", phone: "+2250700000009" },
+    // Famille : la villa et le duplex sont des biens hérités, détenus en parts.
+    { id: "p-fam-aya", role: "FAMILY", firstName: "Aya", lastName: "Komoé", phone: "+2250700000021", relation: "Sœur", access: "VIEW", invitedAt: shiftHours(now, -24 * 40), joinedAt: shiftHours(now, -24 * 38) },
+    { id: "p-fam-marc", role: "FAMILY", firstName: "Marc", lastName: "Komoé", phone: "+33612345678", relation: "Frère", access: "VIEW", invitedAt: shiftHours(now, -24 * 3) },
+    { id: "p-fam-mere", role: "FAMILY", firstName: "Hortense", lastName: "Komoé", phone: "+2250700000023", relation: "Mère", access: "MANAGE", invitedAt: shiftHours(now, -24 * 60), joinedAt: shiftHours(now, -24 * 59) },
+  ];
+  for (const a of assets) if (a.id === "a-bingerville" || a.id === "a-angre") a.holding = "FAMILY";
+  const angre = assets.find((a) => a.id === "a-angre");
+  if (angre) angre.value = XOF(85_000_000);
+  const shares: AssetShare[] = [
+    { assetId: "a-bingerville", holderId: ownerId, sharePermille: 250 },
+    { assetId: "a-bingerville", holderId: "p-fam-aya", sharePermille: 250 },
+    { assetId: "a-bingerville", holderId: "p-fam-marc", sharePermille: 250 },
+    { assetId: "a-bingerville", holderId: "p-fam-mere", sharePermille: 250 },
+    { assetId: "a-angre", holderId: ownerId, sharePermille: 500 },
+    { assetId: "a-angre", holderId: "p-fam-mere", sharePermille: 500 },
   ];
 
   const lease = (id: string, assetId: string, unitId: string, partyId: string, startDate: string, rent: number, dueDay: number): Agreement => ({
@@ -271,9 +287,9 @@ export function createDemoState(ownerId: string, now: string): OwnerState {
     { id: "m2", partyId: "p-fatou", from: "OWNER", text: "Merci Fatou. Je regarde les devis et je vous confirme le passage du plombier.", at: shiftHours(now, -1.5) },
   ];
 
-  return { assets, units, parties, agreements, schedule, transactions, events, documents, messages, maintenance, missions, notificationsReadAt: shiftHours(now, -24) };
+  return { assets, units, parties, agreements, schedule, transactions, events, documents, messages, maintenance, missions, shares, notificationsReadAt: shiftHours(now, -24) };
 }
 
 export function createEmptyState(): OwnerState {
-  return { assets: [], units: [], parties: [], agreements: [], schedule: [], transactions: [], events: [], documents: [], messages: [], maintenance: [], missions: [], notificationsReadAt: new Date(0).toISOString() };
+  return { assets: [], units: [], parties: [], agreements: [], schedule: [], transactions: [], events: [], documents: [], messages: [], maintenance: [], missions: [], shares: [], notificationsReadAt: new Date(0).toISOString() };
 }

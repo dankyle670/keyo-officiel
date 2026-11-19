@@ -1,4 +1,4 @@
-import { runAudit } from "@keyo/shared";
+import { holderPatrimony, runAudit, sharesOf, totalPatrimony, type Party, type Patrimony } from "@keyo/shared";
 import { daysBetween, formatMoney, sumMoney, type Asset, type AssetEvent, type Currency, type Money, type StatusTone } from "@keyo/shared";
 import type { OwnerState } from "./store";
 
@@ -230,6 +230,11 @@ export function search(s: OwnerState, query: string): SearchHit[] {
       hits.push({ id: a.id, kind: "asset", title: a.name, subtitle: a.location.address, href: `/bien/${a.id}` });
   for (const p of s.parties) {
     if (!n(`${p.firstName} ${p.lastName} ${p.phone}`).includes(q)) continue;
+    if (p.role === "FAMILY") {
+      hits.push({ id: p.id, kind: "party", title: `${p.firstName} ${p.lastName}`, subtitle: `Famille${p.relation ? `, ${p.relation.toLowerCase()}` : ""}`, href: `/famille/${p.id}` });
+      continue;
+    }
+    if (p.role !== "OCCUPANT") continue;
     const g = s.agreements.find((x) => x.partyId === p.id);
     const asset = g && s.assets.find((a) => a.id === g.assetId);
     hits.push({ id: p.id, kind: "party", title: `${p.firstName} ${p.lastName}`, subtitle: asset ? `Locataire, ${asset.name}` : "Locataire", href: g ? `/bail/${g.id}` : "/" });
@@ -240,4 +245,69 @@ export function search(s: OwnerState, query: string): SearchHit[] {
 /** Contrôle de gestion (l'« ops » de Keyo), calculé sur les données du téléphone. */
 export function auditReport(s: OwnerState, on: string) {
   return runAudit({ ...s, today: on });
+}
+
+/** Détenteur du patrimoine : le propriétaire du compte ou un proche invité. */
+export type FamilyHolder = {
+  id: string;
+  name: string;
+  relation: string;
+  status: "OWNER" | "JOINED" | "INVITED";
+  access?: "VIEW" | "MANAGE";
+  party?: Party;
+  patrimony: Patrimony;
+};
+
+export const familyMembers = (s: OwnerState) => s.parties.filter((p) => p.role === "FAMILY");
+export const familyAssets = (s: OwnerState) => s.assets.filter((a) => a.holding === "FAMILY");
+
+export function familyHolders(s: OwnerState, owner: { id: string; name: string }): FamilyHolder[] {
+  return [
+    { id: owner.id, name: owner.name, relation: "Vous", status: "OWNER" as const, patrimony: holderPatrimony(s.assets, s.shares, owner.id) },
+    ...familyMembers(s).map((p) => ({
+      id: p.id,
+      name: `${p.firstName} ${p.lastName}`.trim(),
+      relation: p.relation ?? "Proche",
+      status: p.joinedAt ? ("JOINED" as const) : ("INVITED" as const),
+      access: p.access,
+      party: p,
+      patrimony: holderPatrimony(s.assets, s.shares, p.id),
+    })),
+  ];
+}
+
+export const portfolioValue = (s: OwnerState) => totalPatrimony(s.assets);
+
+/** Noms des détenteurs d'un bien, avec leur part. */
+export function assetHolders(s: OwnerState, assetId: string, owner: { id: string; name: string }) {
+  const asset = s.assets.find((a) => a.id === assetId);
+  if (!asset) return [];
+  return sharesOf(asset, s.shares).map((h) => ({ ...h, name: h.holderId === owner.id ? owner.name : partyName(s, h.holderId) }));
+}
+
+/**
+ * Ce qu'un proche voit de chacun de ses biens : sa part, l'occupation, l'encaissement du mois,
+ * les incidents et les points du contrôle de gestion. Lecture seule, sans données personnelles des occupants.
+ */
+export function memberDigest(s: OwnerState, holderId: string, month: string, on: string) {
+  const audit = runAudit({ ...s, today: on });
+  const lines = rentLines(s, month, on);
+  return holderPatrimony(s.assets, s.shares, holderId).lines.map((l) => {
+    const asset = s.assets.find((a) => a.id === l.assetId)!;
+    const summary = assetSummary(s, asset, on);
+    const mine = lines.filter((r) => r.assetId === asset.id);
+    return {
+      asset,
+      sharePermille: l.sharePermille,
+      value: l.value,
+      part: l.part,
+      units: summary.units.length,
+      occupied: summary.units.length - summary.vacantUnits.length,
+      expected: sumMoney(mine.map((r) => r.expected), asset.currency),
+      received: sumMoney(mine.map((r) => r.received), asset.currency),
+      late: mine.filter((r) => r.status === "LATE" || r.status === "UNPAID" || r.status === "PARTIAL").length,
+      incidents: s.events.filter((e) => e.assetId === asset.id && isOpenEvent(e)).length,
+      findings: audit.findings.filter((f) => f.assetId === asset.id).length,
+    };
+  });
 }

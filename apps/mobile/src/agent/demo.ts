@@ -1,7 +1,8 @@
-import { AUDIT_AREA_LABEL, formatMoney, type Currency } from "@keyo/shared";
+import { AUDIT_AREA_LABEL, CONFIDENCE_LABEL, formatMoney, formatShare, valueAsset, type Currency } from "@keyo/shared";
 import { answer } from "@/data/assistant";
 import { addDays, currentMonth, monthName, today } from "@/data/period";
-import { auditReport, monthSummary } from "@/data/selectors";
+import { auditReport, familyHolders, monthSummary, portfolioValue } from "@/data/selectors";
+import { getSession } from "@/data/session";
 import { getOwnerState } from "@/data/store";
 
 /**
@@ -31,6 +32,36 @@ export function demoReply(question: string, currency: Currency): DemoReply {
   const q = norm(question);
   const s = getOwnerState();
   if (s.assets.length === 0) return { text: "Vous n'avez encore aucun bien. Ajoutez-en un depuis l'onglet Biens, ou chargez les données de démonstration dans le Profil." };
+
+  // Évaluation : avant le contrôle, car « documents » apparaît souvent dans la demande.
+  if (/(evalu|estim|vaut|valeur)/.test(q)) {
+    const one = findAsset(q);
+    const list = one ? [one] : s.assets;
+    const val = (a: (typeof list)[number]) => valueAsset({ asset: a, units: s.units, agreements: s.agreements, documents: s.documents, today: today() });
+    const lines = list.map((a) => {
+      const v = val(a);
+      const x = v.declared ?? v.suggested;
+      return `- ${a.name} : ${x ? formatMoney(x) : "à compléter"} (${CONFIDENCE_LABEL[v.confidence].toLowerCase()})${v.missing[0] ? `. Pour préciser : ${v.missing[0]}` : ""}`;
+    });
+    const v0 = one ? val(one) : undefined;
+    return {
+      text: `${one ? "Estimation indicative" : "Estimations indicatives"}, par le revenu capitalisé et le prix d'achat :\n${lines.join("\n")}\nLe détail par unité est dans l'écran Évaluation de chaque bien. À confirmer par un expert pour une vente ou un partage.\nSources : évaluation Keyo`,
+      proposal:
+        one && v0?.suggested && !v0.declared
+          ? { name: "set_asset_value", input: { assetId: one.id, value: v0.suggested.amount, unitValues: v0.units.filter((u) => u.value).map((u) => ({ unitId: u.unitId, value: u.value!.amount })) } }
+          : undefined,
+    };
+  }
+
+  if (/(patrimoine|famille|part de|parts)/.test(q)) {
+    const ses = getSession();
+    const owner = ses.status === "signedIn" ? { id: ses.user.id, name: ses.user.firstName ?? "Vous" } : { id: "owner", name: "Vous" };
+    const hs = familyHolders(s, owner).map((h) => `- ${h.name} (${h.relation.toLowerCase()}) : ${h.patrimony.totals.map(formatMoney).join(" + ") || "aucune part"}${h.status === "INVITED" ? ", invitation en attente" : ""}`);
+    const fam = s.assets.filter((a) => a.holding === "FAMILY").map((a) => `${a.name} (${s.shares.filter((x) => x.assetId === a.id).map((x) => formatShare(x.sharePermille)).join(" / ")})`);
+    return {
+      text: `Patrimoine total : ${portfolioValue(s).map(formatMoney).join(" + ") || "non estimé"}.\nPart de chacun :\n${hs.join("\n")}\n${fam.length ? `Biens de famille : ${fam.join(", ")}.` : "Aucun bien de famille déclaré."}\nSources : famille et patrimoine`,
+    };
+  }
 
   if (/(en ordre|controle|manque|fiscal|impot|document|conform|verifi)/.test(q)) {
     const r = auditReport(s, today());

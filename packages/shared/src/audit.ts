@@ -1,6 +1,7 @@
-import type { Agreement, Asset, AssetEvent, AssetUnit, Document, MaintenancePlan, Mission, Party, ScheduleItem } from "./domain.ts";
+import type { Agreement, Asset, AssetEvent, AssetShare, AssetUnit, Document, MaintenancePlan, Mission, Party, ScheduleItem } from "./domain.ts";
 import { formatMoney } from "./money.ts";
 import { cap, profileOf } from "./modules/catalog.ts";
+import { formatShare, shareTotal } from "./patrimony.ts";
 import { dueStatus } from "./schedule.ts";
 import { daysBetween } from "./status.ts";
 
@@ -36,6 +37,7 @@ export type AuditInput = {
   documents: Document[];
   maintenance?: MaintenancePlan[];
   missions?: Mission[];
+  shares?: AssetShare[];
   /** Date du jour (AAAA-MM-JJ). */
   today: string;
 };
@@ -166,6 +168,22 @@ export function runAudit(input: AuditInput): AuditReport {
             assetId: as.id,
             agreementId: a.id,
           });
+  }
+
+  // Biens de famille : parts réparties à 100 %, membres identifiés.
+  for (const as of input.assets) {
+    if (as.holding !== "FAMILY") continue;
+    const total = shareTotal(as, input.shares ?? []);
+    if (total !== 1000)
+      out.push({
+        id: `family-shares-${as.id}`,
+        severity: "MEDIUM",
+        area: "DOCUMENTS",
+        title: "Parts de la famille incomplètes",
+        detail: `${as.name} : les parts déclarées font ${formatShare(total)} au lieu de 100 %. La valeur de chacun ne peut pas être calculée justement.`,
+        assetId: as.id,
+        fix: { label: "Répartir les parts", prompt: `Aide-moi à répartir les parts de ${as.name} entre les membres de la famille.` },
+      });
   }
 
   // Déclaration annuelle des revenus de l'année écoulée, par pays.

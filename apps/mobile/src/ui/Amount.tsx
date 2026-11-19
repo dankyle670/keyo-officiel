@@ -28,3 +28,20 @@ export function Amount({ value, variant = "rowTitle", tone = "ink", currencyTone
     </View>
   );
 }
+
+/** Montants empilés, un par devise (le patrimoine ne convertit jamais implicitement). */
+export function AmountList({ values, variant = "rowTitle" }: { values: Money[]; variant?: TypeToken }) {
+  if (!values.length)
+    return (
+      <Text variant="rowSubtitle" tone="inkMuted">
+        –
+      </Text>
+    );
+  return (
+    <View style={{ alignItems: "flex-end" }}>
+      {values.map((m) => (
+        <Amount key={m.currency} value={m} variant={variant} />
+      ))}
+    </View>
+  );
+}

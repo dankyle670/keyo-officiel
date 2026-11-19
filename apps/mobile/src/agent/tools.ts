@@ -1,6 +1,6 @@
-import { AGENT_TOOLS, AUDIT_AREA_LABEL, formatMoney, isAgentTool, kindLabel, money, profileOf, type AgentToolInput, type AgentToolName, type Currency } from "@keyo/shared";
+import { AGENT_TOOLS, AUDIT_AREA_LABEL, CONFIDENCE_LABEL, formatMoney, formatShare, isAgentTool, kindLabel, money, profileOf, valueAsset, type AgentToolInput, type AgentToolName, type Currency } from "@keyo/shared";
 import { currentMonth, monthName, nowIso, today } from "@/data/period";
-import { assetSummary, auditReport, formatPermille, isOpenEvent, monthSummary, partyName, yearFinance } from "@/data/selectors";
+import { assetHolders, assetSummary, auditReport, familyAssets, familyHolders, formatPermille, isOpenEvent, monthSummary, partyName, portfolioValue, yearFinance } from "@/data/selectors";
 import { getSession, getSettings } from "@/data/session";
 import { actions, getOwnerState } from "@/data/store";
 import { agentMode, postOps, type TurnContext } from "./api";
@@ -21,6 +21,12 @@ export const turnContext = (): TurnContext => {
   const user = s.status === "signedIn" ? s.user : undefined;
   return { today: today(), currency: currency(), ownerName: user?.firstName };
 };
+
+const owner = () => {
+  const s = getSession();
+  return s.status === "signedIn" ? { id: s.user.id, name: `${s.user.firstName} ${s.user.lastName ?? ""}`.trim() } : { id: "owner", name: "Vous" };
+};
+const DOC_KIND: Record<string, string> = { LEASE: "bail", INVENTORY: "état des lieux", TITLE_DEED: "titre de propriété", RECEIPT: "quittance", INVOICE: "facture", INSURANCE: "assurance", TAX_FILING: "document fiscal", REGISTRATION: "enregistrement", PHOTO: "photo", REPORT: "rapport", APPRAISAL: "rapport d'expertise" };
 
 const assetName = (id: string) => getOwnerState().assets.find((a) => a.id === id)?.name;
 const fmt = (amount: number, c: Currency) => formatMoney(money(amount, c));
@@ -149,6 +155,79 @@ const EXECUTORS: { [N in AgentToolName]: Executor<N> } = {
   get_documents({ assetId }) {
     const docs = getOwnerState().documents.filter((d) => !assetId || d.assetId === assetId);
     return ok(docs.map((d) => ({ kind: d.kind, label: d.label, asset: assetName(d.assetId), year: d.year, date: d.createdAt.slice(0, 10) })), `${docs.length} documents`);
+  },
+
+  get_valuation({ assetId }) {
+    const s = getOwnerState();
+    const list = assetId ? s.assets.filter((a) => a.id === assetId) : s.assets;
+    if (assetId && !list.length) return fail(`Bien introuvable : ${assetId}`);
+    const out = list.map((a) => {
+      const v = valueAsset({ asset: a, units: s.units, agreements: s.agreements, documents: s.documents, today: today() });
+      const f = (x: { amount: number } | null) => (x ? fmt(x.amount, a.currency) : null);
+      return {
+        assetId: a.id,
+        name: a.name,
+        type: profileOf(a.type).label,
+        kind: kindLabel(a.type, a.details.kind),
+        city: a.location.city,
+        country: a.location.country,
+        valueSaisie: f(v.declared),
+        estimation: f(v.suggested),
+        fourchette: v.low && v.high ? `${f(v.low)} à ${f(v.high)}` : null,
+        parRevenu: f(v.incomeValue),
+        parPrixAchat: f(v.costValue),
+        rendementReference: `${v.yieldPermille / 10} %`,
+        methode: v.method,
+        fiabilite: CONFIDENCE_LABEL[v.confidence],
+        unites: v.units.map((u) => ({ unitId: u.unitId, label: u.label, mensuel: f(u.monthly), source: u.source, valeur: f(u.value), saisie: f(u.declared), details: s.units.find((x) => x.id === u.unitId)?.details })),
+        documents: s.documents.filter((d) => d.assetId === a.id).map((d) => `${DOC_KIND[d.kind] ?? d.kind} : ${d.label}`),
+        manque: v.missing,
+        valeursMineures: { estimation: v.suggested?.amount ?? null, unites: Object.fromEntries(v.units.map((u) => [u.unitId, u.value?.amount ?? null])) },
+      };
+    });
+    return ok({ biens: out, avertissement: "Estimation indicative, à confirmer par un expert ou un notaire." }, `${out.length} bien${out.length > 1 ? "s" : ""} évalué${out.length > 1 ? "s" : ""}`);
+  },
+
+  get_patrimony() {
+    const s = getOwnerState();
+    const o = owner();
+    const holders = familyHolders(s, o).map((h) => ({
+      holderId: h.id,
+      nom: h.name,
+      lien: h.relation,
+      statut: h.status === "OWNER" ? "propriétaire" : h.status === "JOINED" ? "inscrit" : "invité, pas encore inscrit",
+      acces: h.access === "MANAGE" ? "co-gestion" : h.access ? "consultation" : undefined,
+      valeurDeSaPart: h.patrimony.totals.map((m) => formatMoney(m)),
+      biens: h.patrimony.lines.map((l) => ({ assetId: l.assetId, bien: assetName(l.assetId), part: formatShare(l.sharePermille), valeur: l.part ? formatMoney(l.part) : "non estimée" })),
+    }));
+    const famille = familyAssets(s).map((a) => ({ assetId: a.id, bien: a.name, parts: assetHolders(s, a.id, o).map((h) => `${h.name} ${formatShare(h.sharePermille)}`) }));
+    return ok({ ownerId: o.id, valeurTotale: portfolioValue(s).map((m) => formatMoney(m)), detenteurs: holders, biensDeFamille: famille }, `${holders.length} détenteur${holders.length > 1 ? "s" : ""}`);
+  },
+
+  set_asset_value({ assetId, value, unitValues }) {
+    const s = getOwnerState();
+    if (!s.assets.some((a) => a.id === assetId)) return fail(`Bien introuvable : ${assetId}`);
+    actions.updateAsset(assetId, { value });
+    for (const u of unitValues ?? []) if (s.units.some((x) => x.id === u.unitId && x.assetId === assetId)) actions.updateUnit(u.unitId, { details: { value: u.value } });
+    return ok({ done: true }, `Valeur de ${assetName(assetId)} enregistrée`);
+  },
+
+  invite_family_member(input) {
+    const id = actions.inviteFamilyMember({ firstName: input.firstName, lastName: input.lastName, phone: input.phone, relation: input.relation, access: input.access });
+    return ok({ partyId: id, note: "Le propriétaire doit encore envoyer le lien d'invitation depuis Famille et patrimoine." }, `${input.firstName} ajouté à la famille`);
+  },
+
+  set_family_shares({ assetId, shares }) {
+    const s = getOwnerState();
+    const a = s.assets.find((x) => x.id === assetId);
+    if (!a) return fail(`Bien introuvable : ${assetId}`);
+    const total = shares.reduce((n, x) => n + x.sharePermille, 0);
+    if (total !== 1000) return fail(`Les parts font ${formatShare(total)} au lieu de 100 %.`);
+    const known = new Set([a.ownerId, ...s.parties.filter((p) => p.role === "FAMILY").map((p) => p.id)]);
+    const unknown = shares.find((x) => !known.has(x.holderId));
+    if (unknown) return fail(`Détenteur inconnu : ${unknown.holderId}. Invitez d'abord ce proche.`);
+    actions.setHolding(assetId, "FAMILY", shares);
+    return ok({ done: true }, `Parts de ${a.name} enregistrées`);
   },
 
   async run_compliance_check() {
@@ -314,8 +393,7 @@ export function describeAction(name: string, input: Record<string, unknown>): st
   const n = (v: unknown) => (typeof v === "number" ? fmt(v, c) : "");
   switch (name) {
     case "file_document": {
-      const KIND: Record<string, string> = { LEASE: "bail", INVENTORY: "état des lieux", TITLE_DEED: "titre de propriété", RECEIPT: "quittance", INVOICE: "facture", INSURANCE: "assurance", TAX_FILING: "document fiscal", REGISTRATION: "enregistrement", PHOTO: "photo", REPORT: "rapport" };
-      return `Classer « ${input.label} » comme ${KIND[input.kind as string] ?? "document"} dans ${a}.`;
+      return `Classer « ${input.label} » comme ${DOC_KIND[input.kind as string] ?? "document"} dans ${a}.`;
     }
     case "add_expense":
       return `Ajouter une dépense de ${n(input.amount)} « ${input.label} » sur ${a}.`;
@@ -332,6 +410,19 @@ export function describeAction(name: string, input: Record<string, unknown>): st
         input.endDate && `fin le ${input.endDate}`,
       ].filter(Boolean);
       return `Modifier le contrat de ${g ? partyName(s, g.partyId) : "l'occupant"} : ${parts.join(", ")}.`;
+    }
+    case "set_asset_value": {
+      const asset = s.assets.find((x) => x.id === input.assetId);
+      const cur = asset?.currency ?? c;
+      const units = (input.unitValues as { unitId: string; value: number }[] | undefined) ?? [];
+      return `Fixer la valeur de ${a} à ${fmt(Number(input.value), cur)}${units.length ? `, dont ${units.map((u) => `${s.units.find((x) => x.id === u.unitId)?.label ?? "unité"} ${fmt(u.value, cur)}`).join(", ")}` : ""}.`;
+    }
+    case "invite_family_member":
+      return `Ajouter ${input.firstName} ${input.lastName} (${String(input.relation).toLowerCase()}) à la famille, en ${input.access === "MANAGE" ? "co-gestion" : "consultation"}.`;
+    case "set_family_shares": {
+      const o = owner();
+      const list = (input.shares as { holderId: string; sharePermille: number }[]).map((x) => `${x.holderId === o.id ? "vous" : partyName(s, x.holderId)} ${formatShare(x.sharePermille)}`);
+      return `Déclarer ${a} comme bien de famille : ${list.join(", ")}.`;
     }
     case "update_unit": {
       const u = s.units.find((x) => x.id === input.unitId);
