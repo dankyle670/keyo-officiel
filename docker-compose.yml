@@ -18,5 +18,7 @@ services:
       - ./apps/mobile/src:/repo/apps/mobile/src
       - ./packages/shared/src:/repo/packages/shared/src
       - ./packages/tokens/src:/repo/packages/tokens/src
+      # Session Expo CLI de l'hôte (npx expo login) : exigée quand Expo Go est connecté à un compte.
+      - ${HOME}/.expo:/root/.expo
     tty: true
     stdin_open: true
