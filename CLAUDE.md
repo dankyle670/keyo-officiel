@@ -61,7 +61,8 @@ pnpm install          # à la racine (node-linker=hoisted, requis par React Nati
 pnpm typecheck        # tous les paquets, via Turborepo
 pnpm test             # tests (packages/shared : node --test)
 pnpm tokens           # régénère packages/tokens/src/generated.ts depuis docs/design/tokens.json
-pnpm mobile           # lance Metro ; scanner le QR code avec Expo Go sur l'iPhone
+pnpm mobile           # lance Metro en mode Expo Go ; scanner le QR code avec l'iPhone
+docker-compose up mobile   # même chose dans un conteneur (KEYO_LAN_IP=IP Wi-Fi de la machine)
 ```
 
 - Carte 3D Mapbox : nécessite `EXPO_PUBLIC_MAPBOX_TOKEN` (voir `apps/mobile/.env.example`) et un development build (`eas build --profile development --platform ios`). Sous Expo Go ou sans jeton, `src/map/AssetsMap.tsx` affiche l'illustration isométrique de secours.

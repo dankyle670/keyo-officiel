@@ -1,0 +1,9 @@
+**/node_modules
+**/.expo
+**/.turbo
+**/dist
+**/ios
+**/android
+.git
+.env
+**/.env

@@ -1,0 +1,22 @@
+version: "3.8"
+# Environnement de développement Keyo.
+# Plus tard : api (NestJS), postgres, redis, admin (Next.js).
+services:
+  mobile:
+    build:
+      context: .
+      dockerfile: apps/mobile/Dockerfile
+    # Réseau de l'hôte : Metro annonce l'IP du réseau local, joignable par l'iPhone.
+    network_mode: host
+    environment:
+      # IP de la machine sur le Wi-Fi (hostname -I), à adapter : c'est l'adresse encodée dans le QR code.
+      REACT_NATIVE_PACKAGER_HOSTNAME: ${KEYO_LAN_IP:-192.168.1.105}
+      EXPO_PUBLIC_MAPBOX_TOKEN: ${EXPO_PUBLIC_MAPBOX_TOKEN:-}
+    volumes:
+      # Code monté pour le rechargement à chaud ; node_modules reste celui de l'image.
+      - ./apps/mobile/app:/repo/apps/mobile/app
+      - ./apps/mobile/src:/repo/apps/mobile/src
+      - ./packages/shared/src:/repo/packages/shared/src
+      - ./packages/tokens/src:/repo/packages/tokens/src
+    tty: true
+    stdin_open: true
