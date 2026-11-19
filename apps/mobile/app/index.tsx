@@ -1,18 +1,30 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { color } from "@keyo/tokens";
 import { DkSymbol, KeyoMark } from "@/brand/Logo";
+import { useSession } from "@/data/session";
 import { Text } from "@/ui";
 
-/** Écran de démarrage (01-Splash). Seul écran de l'app qui porte la signature DK Group. */
+/** Écran de démarrage (01-Splash), seul écran à porter la signature DK Group. Oriente ensuite selon le compte. */
 export default function Splash() {
+  const s = useSession();
+  const [minDelay, setMinDelay] = useState(false);
+
   useEffect(() => {
-    // L'authentification par OTP viendra ici ; en attendant, accès direct à l'espace propriétaire.
-    const t = setTimeout(() => router.replace("/(owner)"), 1400);
+    const t = setTimeout(() => setMinDelay(true), 1200);
     return () => clearTimeout(t);
   }, []);
+
+  useEffect(() => {
+    if (!minDelay || s.status === "loading") return;
+    if (s.status === "signedOut") return router.replace("/(auth)/bienvenue");
+    const u = s.user;
+    if (!u.role) return router.replace("/(auth)/role");
+    if (!u.firstName) return router.replace("/(auth)/profil");
+    router.replace(u.role === "OWNER" ? "/(owner)" : "/locataire");
+  }, [minDelay, s]);
 
   return (
     <View style={{ flex: 1, backgroundColor: color.night }}>

@@ -1,4 +1,4 @@
-import { daysBetween, sumMoney, type Asset, type AssetEvent, type Currency, type Money, type StatusTone } from "@keyo/shared";
+import { daysBetween, formatMoney, sumMoney, type Asset, type AssetEvent, type Currency, type Money, type StatusTone } from "@keyo/shared";
 import type { OwnerState } from "./store";
 
 const monthOf = (isoDate: string) => isoDate.slice(0, 7);
@@ -15,6 +15,7 @@ export type RentLine = {
   dueDate: string;
   daysLate: number;
   agreementStart: string;
+  agreementId: string;
 };
 
 export const partyName = (s: OwnerState, partyId: string) => {
@@ -49,6 +50,7 @@ export function rentLines(s: OwnerState, month: string, today: string): RentLine
         status: it.status,
         dueDate: it.dueDate,
         agreementStart: g.startDate,
+        agreementId: g.id,
         daysLate: it.status === "LATE" || it.status === "UNPAID" ? Math.max(0, daysBetween(it.dueDate, today)) : 0,
       };
     });
@@ -75,7 +77,7 @@ export const isOpenEvent = (e: AssetEvent) => e.status !== "RESOLVED";
 
 /** Ce qui demande une action au propriétaire : retards et incidents en attente de décision. */
 export type TodoItem =
-  | { kind: "late"; id: string; title: string; subtitle: string; amount: Money; assetId: string }
+  | { kind: "late"; id: string; title: string; subtitle: string; amount: Money; assetId: string; agreementId: string }
   | { kind: "event"; id: string; title: string; subtitle: string; eventId: string; category: string };
 
 export function todoItems(s: OwnerState, month: string, today: string, currency: Currency): TodoItem[] {
@@ -87,6 +89,7 @@ export function todoItems(s: OwnerState, month: string, today: string, currency:
       subtitle: `${l.partyName}, ${l.daysLate} jour${l.daysLate > 1 ? "s" : ""} de retard`,
       amount: { amount: l.expected.amount - l.received.amount, currency },
       assetId: l.assetId,
+      agreementId: l.agreementId,
     }),
   );
   const pending = s.events
@@ -121,14 +124,21 @@ export function assetHealth(s: OwnerState, assetId: string, month: string, today
   return { tone: "paid", label: "Tout est payé" };
 }
 
-export function assetSummary(s: OwnerState, asset: Asset) {
+/** Bail en cours à une date donnée (commencé, et pas encore terminé). */
+export const isActiveLease = (g: { startDate: string; endDate?: string }, on: string) => g.startDate <= on && (!g.endDate || g.endDate >= on);
+/** Bail signé, en cours ou à venir. */
+export const isCurrentLease = (g: { endDate?: string }, on: string) => !g.endDate || g.endDate >= on;
+
+export function assetSummary(s: OwnerState, asset: Asset, on: string = new Date().toISOString().slice(0, 10)) {
   const units = s.units.filter((u) => u.assetId === asset.id);
-  const leases = s.agreements.filter((g) => g.assetId === asset.id && g.kind === "LEASE");
+  const leases = s.agreements.filter((g) => g.assetId === asset.id && g.kind === "LEASE" && isCurrentLease(g, on));
   const monthlyRent = sumMoney(leases.map((g) => g.periodicAmount), asset.currency);
+  const occupiedUnitIds = new Set(leases.map((g) => g.unitId));
+  const vacantUnits = units.filter((u) => !occupiedUnitIds.has(u.id));
   const purchase = typeof asset.details.purchasePrice === "number" ? asset.details.purchasePrice : undefined;
   /** Rentabilité brute annuelle, en pour mille entiers pour éviter les floats (74 → 7,4 %). */
-  const grossYieldPermille = purchase ? Math.round((monthlyRent.amount * 12 * 1000) / purchase) : undefined;
-  return { units, leases, monthlyRent, grossYieldPermille, occupied: leases.length > 0 };
+  const grossYieldPermille = purchase && monthlyRent.amount > 0 ? Math.round((monthlyRent.amount * 12 * 1000) / purchase) : undefined;
+  return { units, leases, monthlyRent, grossYieldPermille, occupied: leases.length > 0, vacantUnits, occupiedUnitIds };
 }
 
 export const formatPermille = (p: number) => `${Math.floor(p / 10)},${p % 10} %`;
@@ -143,4 +153,85 @@ export function yearFinance(s: OwnerState, assetId: string, year: number, curren
     return inMonth.reduce((acc, t) => acc + (t.direction === "IN" ? t.amount.amount : -t.amount.amount), 0);
   });
   return { income, expenses, net: { amount: income.amount - expenses.amount, currency }, byMonth, transactions: tx };
+}
+
+export function leaseView(s: OwnerState, agreementId: string) {
+  const g = s.agreements.find((a) => a.id === agreementId);
+  if (!g) return null;
+  const party = s.parties.find((p) => p.id === g.partyId);
+  const asset = s.assets.find((a) => a.id === g.assetId);
+  const unit = s.units.find((u) => u.id === g.unitId);
+  const items = s.schedule.filter((it) => it.agreementId === g.id).sort((a, b) => b.dueDate.localeCompare(a.dueDate));
+  return { agreement: g, party, asset, unit, items };
+}
+
+export type NotificationItem = { id: string; at: string; tone: "paid" | "late" | "danger"; title: string; body: string; href: string };
+
+/** Fil de notifications, dérivé des données (côté API : push + SMS de secours). */
+export function notificationFeed(s: OwnerState, now: string, autoReminders: boolean): NotificationItem[] {
+  const since = new Date(Date.parse(now) - 30 * 86_400_000).toISOString();
+  const out: NotificationItem[] = [];
+  for (const t of s.transactions) {
+    if (t.direction !== "IN" || t.occurredAt < since || t.occurredAt > now) continue;
+    const item = s.schedule.find((it) => it.id === t.scheduleItemId);
+    const g = item && s.agreements.find((a) => a.id === item.agreementId);
+    const who = g ? partyName(s, g.partyId) : "";
+    out.push({
+      id: `n-${t.id}`,
+      at: t.occurredAt,
+      tone: "paid",
+      title: "Loyer reçu",
+      body: `${formatMoney(t.amount)}${who ? `, de ${who}` : ""}.`,
+      href: g ? `/bail/${g.id}` : `/bien/${t.assetId}`,
+    });
+  }
+  const today = now.slice(0, 10);
+  for (const it of s.schedule) {
+    if (it.status !== "LATE" && it.status !== "UNPAID" && it.status !== "PARTIAL") continue;
+    const g = s.agreements.find((a) => a.id === it.agreementId);
+    const asset = g && s.assets.find((a) => a.id === g.assetId);
+    if (!g || !asset) continue;
+    const days = Math.max(1, daysBetween(it.dueDate, today));
+    out.push({
+      id: `n-late-${it.id}`,
+      at: `${it.dueDate}T08:00:00.000Z`,
+      tone: "late",
+      title: "Loyer en retard",
+      body: `Le loyer de ${asset.name} a ${days} jour${days > 1 ? "s" : ""} de retard.${autoReminders ? " Nous avons relancé le locataire." : ""}`,
+      href: `/bail/${g.id}`,
+    });
+  }
+  for (const e of s.events) {
+    if (!isOpenEvent(e)) continue;
+    const asset = s.assets.find((a) => a.id === e.assetId);
+    const urgency = e.urgency === "HIGH" ? "Urgence haute" : e.urgency === "MEDIUM" ? "Urgence moyenne" : "Peu urgent";
+    out.push({
+      id: `n-${e.id}`,
+      at: e.reportedAt,
+      tone: "danger",
+      title: `${e.title} signalée`,
+      body: `${asset?.name ?? ""}. ${urgency}.${e.quotes.length && e.status === "QUOTES_PENDING" ? " Des devis vous attendent." : ""}`,
+      href: `/incident/${e.id}`,
+    });
+  }
+  return out.sort((a, b) => b.at.localeCompare(a.at));
+}
+
+export type SearchHit = { id: string; kind: "asset" | "party"; title: string; subtitle: string; href: string };
+
+export function search(s: OwnerState, query: string): SearchHit[] {
+  const n = (x: string) => x.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const q = n(query.trim());
+  if (q.length < 2) return [];
+  const hits: SearchHit[] = [];
+  for (const a of s.assets)
+    if (n(`${a.name} ${a.location.address} ${a.location.city}`).includes(q))
+      hits.push({ id: a.id, kind: "asset", title: a.name, subtitle: a.location.address, href: `/bien/${a.id}` });
+  for (const p of s.parties) {
+    if (!n(`${p.firstName} ${p.lastName} ${p.phone}`).includes(q)) continue;
+    const g = s.agreements.find((x) => x.partyId === p.id);
+    const asset = g && s.assets.find((a) => a.id === g.assetId);
+    hits.push({ id: p.id, kind: "party", title: `${p.firstName} ${p.lastName}`, subtitle: asset ? `Locataire, ${asset.name}` : "Locataire", href: g ? `/bail/${g.id}` : "/" });
+  }
+  return hits;
 }

@@ -18,6 +18,7 @@ export function buildMarkers(s: OwnerState, assets: Asset[], month: string, toda
       x,
       y,
       label: health.mapLabel,
+      tone: health.tone,
       pin: <MapPin tone={health.tone} label={health.mapLabel} />,
     };
   });

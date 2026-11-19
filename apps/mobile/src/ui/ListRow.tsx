@@ -12,14 +12,16 @@ type Props = {
   chevron?: boolean;
   divider?: boolean;
   onPress?: () => void;
+  onLongPress?: () => void;
 };
 
 /** Ligne de liste d'environ 72 px, séparée par un filet `line`, sans carte autour. */
-export function ListRow({ leading, title, subtitle, trailing, chevron, divider = true, onPress }: Props) {
+export function ListRow({ leading, title, subtitle, trailing, chevron, divider = true, onPress, onLongPress }: Props) {
   return (
     <Pressable
       onPress={onPress}
-      disabled={!onPress}
+      onLongPress={onLongPress}
+      disabled={!onPress && !onLongPress}
       accessibilityRole={onPress ? "button" : undefined}
       style={({ pressed }) => ({
         minHeight: size.row,

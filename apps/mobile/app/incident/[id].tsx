@@ -5,7 +5,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Camera, ChevronLeft, Sparkles } from "lucide-react-native";
 import { formatMoney } from "@keyo/shared";
 import { color, radius } from "@keyo/tokens";
-import { NOW } from "@/data/mock";
 import { dayMonth, slotLabel } from "@/data/period";
 import { partyName } from "@/data/selectors";
 import { actions, useOwnerState } from "@/data/store";
@@ -41,7 +40,7 @@ export default function IncidentDetail() {
     event.status === "RESOLVED"
       ? { tone: "paid" as const, label: `Résolu le ${dayMonth(event.resolvedAt ?? event.reportedAt)}` }
       : event.status === "SCHEDULED" && event.scheduledAt
-        ? { tone: "info" as const, label: `Intervention ${slotLabel(event.scheduledAt, NOW).toLowerCase()}` }
+        ? { tone: "info" as const, label: `Intervention ${slotLabel(event.scheduledAt).toLowerCase()}` }
         : URGENCY[event.urgency];
 
   return (
@@ -117,7 +116,7 @@ export default function IncidentDetail() {
                     <View style={{ flex: 1 }}>
                       <Text variant="rowTitle">{q.provider}</Text>
                       <Text variant="rowSubtitle" tone="inkMuted">
-                        {slotLabel(q.slot, NOW)}, note {String(q.rating).replace(".", ",")}
+                        {slotLabel(q.slot)}, note {String(q.rating).replace(".", ",")}
                       </Text>
                     </View>
                     <Amount value={q.amount} variant="rowTitle" />
@@ -129,6 +128,11 @@ export default function IncidentDetail() {
         </View>
       </ScrollView>
 
+      {event.status === "SCHEDULED" && (
+        <View style={{ position: "absolute", left: 24, right: 24, bottom: insets.bottom + 16 }}>
+          <Button label="Marquer comme résolu" onPress={() => actions.resolveEvent(event.id)} />
+        </View>
+      )}
       {canChoose && quote && (
         <View style={{ position: "absolute", left: 24, right: 24, bottom: insets.bottom + 16 }}>
           <Button

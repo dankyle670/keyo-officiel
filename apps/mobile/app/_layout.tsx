@@ -13,8 +13,13 @@ import {
   useFonts,
 } from "@expo-google-fonts/plus-jakarta-sans";
 import { color } from "@keyo/tokens";
+import { session } from "@/data/session";
+import { actions } from "@/data/store";
 
 SplashScreen.preventAutoHideAsync();
+// Session et données locales chargées dès le démarrage, en parallèle des polices.
+session.hydrate();
+actions.hydrate();
 
 export default function RootLayout() {
   const [loaded, error] = useFonts({
@@ -38,7 +43,10 @@ export default function RootLayout() {
         <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: color.surface } }}>
           <Stack.Screen name="index" options={{ animation: "none" }} />
           <Stack.Screen name="(owner)" options={{ animation: "fade" }} />
+          <Stack.Screen name="(auth)" options={{ animation: "fade" }} />
           <Stack.Screen name="bien/nouveau" options={{ presentation: "modal" }} />
+          <Stack.Screen name="bien/[id]/depense" options={{ presentation: "modal" }} />
+          <Stack.Screen name="bien/[id]/inviter" options={{ presentation: "modal" }} />
         </Stack>
       </SafeAreaProvider>
     </GestureHandlerRootView>

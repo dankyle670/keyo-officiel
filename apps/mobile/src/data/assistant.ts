@@ -1,4 +1,4 @@
-import { formatMoney, sumMoney, type Money } from "@keyo/shared";
+import { formatMoney, sumMoney, type Currency, type Money } from "@keyo/shared";
 import { currentMonth, monthName, today } from "./period";
 import { assetSummary, formatPermille, monthSummary, yearFinance } from "./selectors";
 import type { OwnerState } from "./store";
@@ -20,7 +20,7 @@ const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,
  * IA de la Phase 2 (API Claude appelée depuis apps/api, jamais depuis l'app, limitée aux données
  * du propriétaire, avec sources affichées).
  */
-export function answer(s: OwnerState, question: string, currency: "XOF" | "EUR"): AssistantAnswer {
+export function answer(s: OwnerState, question: string, currency: Currency): AssistantAnswer {
   const q = norm(question);
   const year = Number(today().slice(0, 4));
   const asset = s.assets.find((a) => q.includes(norm(a.name).split(" ").slice(-1)[0]!));

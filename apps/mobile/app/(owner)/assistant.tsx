@@ -4,9 +4,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowUp, Sparkles } from "lucide-react-native";
 import { color, fontFamily, radius } from "@keyo/tokens";
 import { answer, FIRST_QUESTION, SUGGESTIONS, type AssistantAnswer } from "@/data/assistant";
-import { owner } from "@/data/mock";
+import { getSession } from "@/data/session";
 import { getOwnerState } from "@/data/store";
 import { Amount, TAB_BAR_CLEARANCE, Text } from "@/ui";
+
+const currency = () => {
+  const s = getSession();
+  return s.status === "signedIn" ? s.user.displayCurrency : "XOF";
+};
 
 type Turn = { id: number; question: string; reply: AssistantAnswer };
 
@@ -15,12 +20,14 @@ export default function Assistant() {
   const insets = useSafeAreaInsets();
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
   const [input, setInput] = useState("");
-  const [turns, setTurns] = useState<Turn[]>(() => [{ id: 0, question: FIRST_QUESTION, reply: answer(getOwnerState(), FIRST_QUESTION, owner.displayCurrency) }]);
+  const [turns, setTurns] = useState<Turn[]>(() =>
+    getOwnerState().assets.some((a) => a.name.includes("Bingerville")) ? [{ id: 0, question: FIRST_QUESTION, reply: answer(getOwnerState(), FIRST_QUESTION, currency()) }] : [],
+  );
 
   const ask = (q: string) => {
     const question = q.trim();
     if (!question) return;
-    setTurns((t) => [...t, { id: t.length, question, reply: answer(getOwnerState(), question, owner.displayCurrency) }]);
+    setTurns((t) => [...t, { id: t.length, question, reply: answer(getOwnerState(), question, currency()) }]);
     setInput("");
     setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 50);
   };
@@ -31,6 +38,11 @@ export default function Assistant() {
         <Text variant="screenTitle" accessibilityRole="header">
           Assistant
         </Text>
+        {turns.length === 0 && (
+          <Text variant="body" tone="inkMuted" style={{ marginTop: 12 }}>
+            Posez une question sur vos biens, vos loyers ou vos dépenses. Les réponses s'appuient uniquement sur vos données.
+          </Text>
+        )}
         {turns.map((t) => (
           <View key={t.id} style={{ marginTop: 24, gap: 14 }}>
             <View style={{ alignSelf: "flex-end", maxWidth: "85%", backgroundColor: color.night, borderRadius: 22, borderBottomRightRadius: 6, paddingHorizontal: 16, paddingVertical: 12 }}>

@@ -3,7 +3,6 @@ import { Pressable, View } from "react-native";
 import { router } from "expo-router";
 import { color } from "@keyo/tokens";
 import type { AssetEvent } from "@keyo/shared";
-import { NOW } from "@/data/mock";
 import { eventIcon } from "@/data/icons";
 import { dayMonth, sinceLabel, slotLabel } from "@/data/period";
 import { isOpenEvent } from "@/data/selectors";
@@ -30,7 +29,7 @@ export default function Incidents() {
       case "OPEN":
         return <Status tone="late" label="Nouveau" />;
       case "SCHEDULED":
-        return <Status tone="info" label={e.scheduledAt ? slotLabel(e.scheduledAt, NOW) : "Programmé"} />;
+        return <Status tone="info" label={e.scheduledAt ? slotLabel(e.scheduledAt) : "Programmé"} />;
       case "RESOLVED":
         return <Status tone="paid" label="Résolu" />;
     }
@@ -41,8 +40,8 @@ export default function Incidents() {
   return (
     <Screen title="Incidents">
       <View style={{ flexDirection: "row", gap: 8, marginTop: 18 }}>
-        <Chip active={filter === "open"} label={`En cours ${open.length}`} onPress={() => setFilter("open")} />
-        <Chip active={filter === "resolved"} label={`Résolus ${resolved.length}`} onPress={() => setFilter("resolved")} />
+        <LocalChip active={filter === "open"} label={`En cours ${open.length}`} onPress={() => setFilter("open")} />
+        <LocalChip active={filter === "resolved"} label={`Résolus ${resolved.length}`} onPress={() => setFilter("resolved")} />
       </View>
 
       <View style={{ marginTop: 12 }}>
@@ -57,7 +56,7 @@ export default function Incidents() {
             divider={i > 0}
             leading={<IconCircle icon={eventIcon(e.category)} bg={isOpenEvent(e) ? "dangerTint" : "surfaceSoft"} fg={isOpenEvent(e) ? "danger" : "ink"} />}
             title={e.title}
-            subtitle={`${assetName(e)}, ${e.resolvedAt ? dayMonth(e.resolvedAt) : sinceLabel(e.reportedAt, NOW)}`}
+            subtitle={`${assetName(e)}, ${e.resolvedAt ? dayMonth(e.resolvedAt) : sinceLabel(e.reportedAt)}`}
             trailing={status(e)}
             onPress={() => router.push(`/incident/${e.id}`)}
           />
@@ -84,7 +83,7 @@ export default function Incidents() {
   );
 }
 
-function Chip({ active, label, onPress }: { active: boolean; label: string; onPress: () => void }) {
+function LocalChip({ active, label, onPress }: { active: boolean; label: string; onPress: () => void }) {
   return (
     <Pressable
       onPress={onPress}

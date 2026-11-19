@@ -7,3 +7,7 @@ export * from "./ListRow";
 export * from "./RoundButton";
 export * from "./Screen";
 export * from "./TabBar";
+export * from "./TextField";
+export * from "./Chip";
+export * from "./Sheet";
+export * from "./Header";

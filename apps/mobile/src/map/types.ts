@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { StatusTone } from "@keyo/shared";
 
 export type AssetMarker = {
   id: string;
@@ -9,5 +10,6 @@ export type AssetMarker = {
   x: number;
   y: number;
   label?: string;
+  tone: StatusTone;
   pin: ReactNode;
 };

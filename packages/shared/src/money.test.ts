@@ -20,3 +20,13 @@ test("refuse d'additionner deux devises", () => {
   assert.throws(() => addMoney(money(1, "XOF"), money(1, "EUR")));
   assert.deepEqual(sumMoney([money(1, "XOF"), money(2, "XOF")], "XOF"), money(3, "XOF"));
 });
+
+import { formatLocal, PHONE_COUNTRIES, toE164 } from "./phone.ts";
+
+test("numéros E.164", () => {
+  const [ci, fr] = PHONE_COUNTRIES;
+  assert.equal(toE164(ci, "07 00 00 00 01"), "+2250700000001");
+  assert.equal(toE164(fr, "06 12 34 56 78"), "+33612345678");
+  assert.equal(toE164(ci, "0700"), null);
+  assert.equal(formatLocal(ci, "0700000001"), "07 00 00 00 01");
+});
