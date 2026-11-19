@@ -3,7 +3,7 @@ import { KeyboardAvoidingView, Linking, Platform, Share, View } from "react-nati
 import { router, useLocalSearchParams } from "expo-router";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Check, MessageSquare, Share2 } from "lucide-react-native";
-import { formatLocal, formatMoney, money, PHONE_COUNTRIES, toE164 } from "@keyo/shared";
+import { cap, formatLocal, formatMoney, money, PHONE_COUNTRIES, profileOf, toE164 } from "@keyo/shared";
 import { color, radius } from "@keyo/tokens";
 import { fullDate, today } from "@/data/period";
 import { assetSummary } from "@/data/selectors";
@@ -27,6 +27,7 @@ export default function InviteTenant() {
   const unit = vacant.find((u) => u.id === unitId) ?? vacant[0];
   const isXof = asset?.currency !== "EUR";
   const factor = isXof ? 1 : 100;
+  const pf = profileOf(asset?.type ?? "REAL_ESTATE");
   const asking = unit && typeof unit.details.askingRent === "number" ? unit.details.askingRent / factor : 0;
 
   const country = PHONE_COUNTRIES.find((c) => c.code === asset?.location.country) ?? PHONE_COUNTRIES[0];
@@ -41,9 +42,9 @@ export default function InviteTenant() {
 
   if (!asset || !unit) {
     return (
-      <SubScreen title="Aucun logement libre">
+      <SubScreen title={`Aucun${pf.unit.feminine ? "e" : ""} ${pf.unit.one} libre`}>
         <Text variant="body" tone="inkMuted" style={{ marginTop: 12 }}>
-          Tous les logements de ce bien ont déjà un locataire. Ajoutez un logement depuis le menu du bien.
+          Tou{pf.unit.feminine ? "tes" : "s"} les {pf.unit.many} de ce bien sont occupé{pf.unit.feminine ? "e" : ""}s. Ajoutez-en depuis le menu du bien.
         </Text>
       </SubScreen>
     );
@@ -72,17 +73,17 @@ export default function InviteTenant() {
   if (done) {
     // Côté API : lien signé à usage unique ; le locataire peut aussi payer par lien SMS sans installer l'app.
     const link = `https://keyo.app/rejoindre/${done.code}`;
-    const message = `Bonjour ${firstName.trim()}, ${user.firstName} ${user.lastName ?? ""} vous invite sur Keyo pour votre logement ${asset.name}. Loyer : ${formatMoney(money(rentMinor, asset.currency))} le ${dueDay} de chaque mois. Rejoignez votre logement : ${link}`;
+    const message = `Bonjour ${firstName.trim()}, ${user.firstName} ${user.lastName ?? ""} vous invite sur Keyo pour ${asset.name}. ${cap(pf.amount)} : ${formatMoney(money(rentMinor, asset.currency))} le ${dueDay} de chaque mois. Rejoignez Keyo : ${link}`;
     return (
       <SubScreen
         title="Invitation prête"
         onBack={() => router.back()}
-        footer={<Button label="Voir le bail" onPress={() => router.replace(`/bail/${done.agreementId}`)} />}
+        footer={<Button label="Voir le contrat" onPress={() => router.replace(`/bail/${done.agreementId}`)} />}
       >
         <View style={{ marginTop: 20, padding: 20, borderRadius: radius.card, backgroundColor: color.mintTint, flexDirection: "row", gap: 14, alignItems: "center" }}>
           <IconCircle icon={Check} bg="mint" fg="onMint" />
           <Text variant="body" style={{ flex: 1 }}>
-            Le bail de {firstName.trim()} est créé. Les loyers seront suivis à partir du {fullDate(startIso)}.
+            Le {pf.agreement.one} de {firstName.trim()} est créé. Les {pf.amount}s seront suivis à partir du {fullDate(startIso)}.
           </Text>
         </View>
         <Text variant="rowSubtitle" tone="inkMuted" style={{ marginTop: 24 }}>
@@ -105,11 +106,11 @@ export default function InviteTenant() {
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
-      <SubScreen title="Inviter un locataire" subtitle={asset.name} footer={<Button label="Créer le bail et inviter" disabled={!ok} onPress={create} />}>
+      <SubScreen title={`Inviter un ${pf.occupant.one}`} subtitle={asset.name} footer={<Button label="Créer le contrat et inviter" disabled={!ok} onPress={create} />}>
         {vacant.length > 1 && (
           <>
             <Text variant="rowSubtitle" tone="inkMuted" style={{ marginTop: 20 }}>
-              Logement
+              {cap(pf.unit.one)}
             </Text>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
               {vacant.map((u) => (
@@ -128,7 +129,7 @@ export default function InviteTenant() {
         )}
 
         <Text variant="section" style={{ marginTop: 28 }}>
-          Locataire
+          {cap(pf.occupant.one)}
         </Text>
         <View style={{ flexDirection: "row", gap: 12 }}>
           <View style={{ flex: 1 }}>
@@ -148,7 +149,7 @@ export default function InviteTenant() {
         />
 
         <Text variant="section" style={{ marginTop: 28 }}>
-          Bail
+          Contrat
         </Text>
         <View style={{ marginTop: 20, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <Text variant="rowSubtitle" tone="inkMuted">
@@ -156,7 +157,7 @@ export default function InviteTenant() {
           </Text>
           <DateTimePicker value={start} mode="date" display={Platform.OS === "ios" ? "compact" : "default"} locale="fr-FR" onChange={(_, d) => d && setStart(d)} accentColor={color.mintDeep} />
         </View>
-        <TextField label={`Loyer mensuel (${currencyLabel})`} value={grouped(rent)} onChangeText={(t) => setRent(digits(t))} keyboardType="number-pad" />
+        <TextField label={`${cap(pf.amount)} mensuel (${currencyLabel})`} value={grouped(rent)} onChangeText={(t) => setRent(digits(t))} keyboardType="number-pad" />
         <Text variant="rowSubtitle" tone="inkMuted" style={{ marginTop: 20 }}>
           Caution
         </Text>

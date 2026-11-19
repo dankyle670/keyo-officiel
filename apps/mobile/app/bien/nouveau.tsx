@@ -3,23 +3,23 @@ import { Image, KeyboardAvoidingView, Pressable, ScrollView, View } from "react-
 import { router } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Building, Building2, Camera, ChevronLeft, House, ImagePlus, Sprout, Store, Tractor, X, type LucideIcon } from "lucide-react-native";
-import { RealEstateDetails, RealEstateUnitDetails, REAL_ESTATE_KIND_LABEL, type Asset, type AssetUnit, type Currency, type RealEstateKind } from "@keyo/shared";
+import { Building2, Camera, Car, ChevronLeft, ImagePlus, Sprout, Store, Tractor, X, type LucideIcon } from "lucide-react-native";
+import { ASSET_PROFILES, ASSET_TYPE_ORDER, cap, DETAILS_SCHEMA, GenericUnitDetails, type Asset, type AssetType, type AssetUnit, type Currency } from "@keyo/shared";
 import { color, radius } from "@keyo/tokens";
 import { useUser } from "@/data/session";
 import { actions } from "@/data/store";
 import { Button, Chip, RoundButton, Text, TextField } from "@/ui";
 
-type Choice = { kind: RealEstateKind; icon: LucideIcon } | { kind: "PLANTATION" | "FARM"; icon: LucideIcon; soon: true };
-const CHOICES: Choice[] = [
-  { kind: "APARTMENT", icon: Building },
-  { kind: "HOUSE", icon: House },
-  { kind: "BUILDING", icon: Building2 },
-  { kind: "COMMERCIAL", icon: Store },
-  { kind: "PLANTATION", icon: Sprout, soon: true },
-  { kind: "FARM", icon: Tractor, soon: true },
-];
-const SOON_LABEL = { PLANTATION: "Plantation", FARM: "Ferme" } as const;
+const TYPE_ICON: Record<AssetType, LucideIcon> = { REAL_ESTATE: Building2, PLANTATION: Sprout, FARM: Tractor, VEHICLE: Car, SHOP: Store };
+const TYPE_HINT: Record<AssetType, string> = {
+  REAL_ESTATE: "Appartement, villa, immeuble",
+  PLANTATION: "Cacao, hévéa, anacarde",
+  FARM: "Volaille, porcs, poissons",
+  VEHICLE: "Taxi, VTC, moto-taxi",
+  SHOP: "Boutique, maquis, salon",
+};
+/** Une seule unité pour ces sous-types (une maison, un appartement). */
+const SINGLE_UNIT_KINDS = new Set(["APARTMENT", "HOUSE"]);
 
 /** Pays du bien : fixe la devise des loyers et le centre de carte par défaut, avant le placement précis. */
 const COUNTRIES = [
@@ -27,7 +27,7 @@ const COUNTRIES = [
   { code: "FR", label: "France", city: "Paris", currency: "EUR" as Currency, center: { lat: 48.8566, lng: 2.3522 } },
 ];
 
-type UnitDraft = { label: string; rooms: string; rent: string };
+type UnitDraft = { label: string; measure: string; rent: string };
 const STEPS = 4;
 const digits = (t: string) => t.replace(/\D/g, "");
 const grouped = (t: string) => (t ? Number(t).toLocaleString("fr-FR").replace(/\s/g, " ") : "");
@@ -37,18 +37,20 @@ export default function NewAsset() {
   const insets = useSafeAreaInsets();
   const user = useUser();
   const [step, setStep] = useState(1);
-  const [kind, setKind] = useState<RealEstateKind>();
+  const [type, setType] = useState<AssetType>();
+  const [kind, setKind] = useState<string>();
   const [name, setName] = useState("");
   const [country, setCountry] = useState(COUNTRIES[0]!);
   const [address, setAddress] = useState("");
   const [city, setCity] = useState(COUNTRIES[0]!.city);
   const [purchase, setPurchase] = useState("");
-  const [units, setUnits] = useState<UnitDraft[]>([{ label: "", rooms: "", rent: "" }]);
+  const [units, setUnits] = useState<UnitDraft[]>([{ label: "", measure: "", rent: "" }]);
   const [photos, setPhotos] = useState<string[]>([]);
 
-  const multi = kind === "BUILDING";
+  const profile = ASSET_PROFILES[type ?? "REAL_ESTATE"];
+  const multi = !!kind && !SINGLE_UNIT_KINDS.has(kind);
   const unitsOk = units.every((u) => Number(u.rent) > 0);
-  const canContinue = step === 1 ? !!kind && name.trim().length > 1 : step === 2 ? address.trim().length > 2 && city.trim().length > 1 : step === 3 ? unitsOk : true;
+  const canContinue = step === 1 ? !!type && !!kind && name.trim().length > 1 : step === 2 ? address.trim().length > 2 && city.trim().length > 1 : step === 3 ? unitsOk : true;
   const currencyLabel = country.currency === "XOF" ? "FCFA" : "€";
   // L'euro se saisit en euros, stocké en centimes (unité mineure).
   const toMinor = (v: string) => Number(v || 0) * (country.currency === "XOF" ? 1 : 100);
@@ -63,14 +65,15 @@ export default function NewAsset() {
   };
 
   const submit = () => {
-    if (!kind) return;
+    if (!kind || !type) return;
     const id = `a-${Date.now().toString(36)}`;
-    // Les champs propres à l'immobilier sont validés par le schéma du module.
-    const details = RealEstateDetails.parse({ kind, purchasePrice: purchase ? toMinor(purchase) : undefined });
+    // Les champs propres au type sont validés par le schéma de son module.
+    const details = (DETAILS_SCHEMA[type] ?? DETAILS_SCHEMA.REAL_ESTATE!).parse({ kind, purchasePrice: purchase ? toMinor(purchase) : undefined }) as Record<string, unknown>;
+    const key = profile.measure?.key;
     const asset: Asset = {
       id,
       ownerId: user.id,
-      type: "REAL_ESTATE",
+      type,
       name: name.trim(),
       location: { address: address.trim(), city: city.trim(), country: country.code, ...country.center },
       details,
@@ -80,9 +83,9 @@ export default function NewAsset() {
     const assetUnits: AssetUnit[] = units.map((u, i) => ({
       id: `${id}-u${i + 1}`,
       assetId: id,
-      type: "DWELLING",
-      label: u.label.trim() || (units.length === 1 ? REAL_ESTATE_KIND_LABEL[kind] : `Logement ${i + 1}`),
-      details: RealEstateUnitDetails.parse({ rooms: Number(u.rooms) || 1, askingRent: toMinor(u.rent) }),
+      type: type === "REAL_ESTATE" ? "DWELLING" : type,
+      label: u.label.trim() || (units.length === 1 ? profile.kinds[kind] ?? cap(profile.unit.one) : `${cap(profile.unit.one)} ${i + 1}`),
+      details: GenericUnitDetails.parse({ ...(key && Number(u.measure.replace(",", ".")) > 0 ? { [key]: key === "areaHa" || key === "surfaceM2" ? Number(u.measure.replace(",", ".")) : Math.round(Number(u.measure)) } : {}), askingRent: toMinor(u.rent) }),
     }));
     actions.addAsset({ asset, units: assetUnits, photos });
     router.replace(`/bien/${id}`);
@@ -109,52 +112,66 @@ export default function NewAsset() {
               Quel type de bien ?
             </Text>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 20 }}>
-              {CHOICES.map((c) => {
-                const soon = "soon" in c;
-                const active = !soon && c.kind === kind;
-                const Icon = c.icon;
+              {ASSET_TYPE_ORDER.map((t) => {
+                const active = t === type;
+                const Icon = TYPE_ICON[t];
                 return (
                   <Pressable
-                    key={c.kind}
-                    disabled={soon}
+                    key={t}
                     onPress={() => {
-                      if (soon) return;
-                      setKind(c.kind as RealEstateKind);
-                      if (c.kind !== "BUILDING") setUnits((u) => u.slice(0, 1));
+                      setType(t);
+                      setKind(undefined);
+                      setUnits((u) => u.slice(0, 1));
                     }}
                     accessibilityRole="radio"
-                    accessibilityState={{ checked: active, disabled: soon }}
+                    accessibilityState={{ checked: active }}
                     style={{
                       width: "47%",
                       flexGrow: 1,
-                      height: 104,
+                      minHeight: 104,
                       borderRadius: radius.card,
                       backgroundColor: active ? color.mintTint : color.surfaceRaised,
                       borderWidth: 2,
                       borderColor: active ? color.mint : "transparent",
                       padding: 16,
                       justifyContent: "space-between",
-                      opacity: soon ? 0.55 : 1,
+                      gap: 10,
                     }}
                   >
                     <Icon size={26} strokeWidth={1.8} color={active ? color.mintDeep : color.ink} />
-                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 4 }}>
-                      <Text variant="rowTitle" numberOfLines={1} style={{ flexShrink: 1 }}>
-                        {soon ? SOON_LABEL[c.kind as "PLANTATION" | "FARM"] : REAL_ESTATE_KIND_LABEL[c.kind as RealEstateKind]}
+                    <View>
+                      <Text variant="rowTitle" numberOfLines={1}>
+                        {ASSET_PROFILES[t].label}
                       </Text>
-                      {soon && (
-                        <View style={{ backgroundColor: color.surfaceSoft, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 }}>
-                          <Text variant="caption" tone="inkMuted">
-                            Bientôt
-                          </Text>
-                        </View>
-                      )}
+                      <Text variant="caption" tone="inkMuted" numberOfLines={1}>
+                        {TYPE_HINT[t]}
+                      </Text>
                     </View>
                   </Pressable>
                 );
               })}
             </View>
-            <TextField label="Nom du bien" value={name} onChangeText={setName} placeholder="Ex. Villa Bingerville" autoCapitalize="words" />
+            {type && (
+              <>
+                <Text variant="rowSubtitle" tone="inkMuted" style={{ marginTop: 22 }}>
+                  Précisez
+                </Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+                  {Object.entries(profile.kinds).map(([k, label]) => (
+                    <Chip
+                      key={k}
+                      active={k === kind}
+                      label={label}
+                      onPress={() => {
+                        setKind(k);
+                        if (SINGLE_UNIT_KINDS.has(k)) setUnits((u) => u.slice(0, 1));
+                      }}
+                    />
+                  ))}
+                </View>
+              </>
+            )}
+            <TextField label="Nom" value={name} onChangeText={setName} placeholder={type === "PLANTATION" ? "Ex. Plantation Agboville" : type === "VEHICLE" ? "Ex. Taxi Toyota Corolla" : type === "FARM" ? "Ex. Ferme de Dabou" : type === "SHOP" ? "Ex. Boutique Adjamé" : "Ex. Villa Bingerville"} autoCapitalize="words" />
           </>
         )}
 
@@ -191,37 +208,48 @@ export default function NewAsset() {
         {step === 3 && (
           <>
             <Text variant="screenTitle" style={{ marginTop: 6 }} accessibilityRole="header">
-              {multi ? "Logements et loyers" : "Loyer"}
+              {multi ? `${cap(profile.unit.many)} et ${profile.amount}s` : cap(profile.amount)}
             </Text>
             <Text variant="rowSubtitle" tone="inkMuted" style={{ marginTop: 6 }}>
-              Le loyer indiqué sera proposé à la création du bail.
+              Le montant indiqué sera proposé à la création du {profile.agreement.one}.
             </Text>
             {units.map((u, i) => (
               <View key={i} style={{ marginTop: 16, padding: multi ? 16 : 0, borderRadius: radius.card, backgroundColor: multi ? color.surfaceRaised : "transparent" }}>
                 {multi && (
                   <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                    <Text variant="rowTitle">Logement {i + 1}</Text>
+                    <Text variant="rowTitle">
+                      {cap(profile.unit.one)} {i + 1}
+                    </Text>
                     {units.length > 1 && (
-                      <Pressable onPress={() => setUnits((list) => list.filter((_, j) => j !== i))} accessibilityLabel={`Retirer le logement ${i + 1}`} hitSlop={8}>
+                      <Pressable onPress={() => setUnits((list) => list.filter((_, j) => j !== i))} accessibilityLabel={`Retirer ${profile.unit.one} ${i + 1}`} hitSlop={8}>
                         <X size={20} strokeWidth={1.8} color={color.inkMuted} />
                       </Pressable>
                     )}
                   </View>
                 )}
-                {multi && <TextField label="Nom" value={u.label} onChangeText={(t) => setUnit(i, { label: t })} placeholder={`Ex. Appartement A${i + 1}`} />}
+                {(multi || type === "VEHICLE") && (
+                  <TextField
+                    label={type === "VEHICLE" ? "Modèle et immatriculation" : "Nom"}
+                    value={u.label}
+                    onChangeText={(t) => setUnit(i, { label: t })}
+                    placeholder={type === "VEHICLE" ? "Ex. Corolla, 1234 AB 01" : type === "PLANTATION" ? `Ex. Parcelle ${i + 1}` : `Ex. ${cap(profile.unit.one)} ${i + 1}`}
+                  />
+                )}
                 <View style={{ flexDirection: "row", gap: 12 }}>
-                  <View style={{ width: 110 }}>
-                    <TextField label="Pièces" value={u.rooms} onChangeText={(t) => setUnit(i, { rooms: digits(t) })} keyboardType="number-pad" placeholder="3" />
-                  </View>
+                  {profile.measure && (
+                    <View style={{ width: 130 }}>
+                      <TextField label={profile.measure.label} value={u.measure} onChangeText={(t) => setUnit(i, { measure: t.replace(/[^\d,]/g, "") })} keyboardType="decimal-pad" placeholder={profile.measure.key === "areaHa" ? "4,5" : "3"} />
+                    </View>
+                  )}
                   <View style={{ flex: 1 }}>
-                    <TextField label={`Loyer mensuel (${currencyLabel})`} value={grouped(u.rent)} onChangeText={(t) => setUnit(i, { rent: digits(t) })} keyboardType="number-pad" placeholder={country.currency === "XOF" ? "150 000" : "850"} />
+                    <TextField label={`${cap(profile.amount)} mensuel (${currencyLabel})`} value={grouped(u.rent)} onChangeText={(t) => setUnit(i, { rent: digits(t) })} keyboardType="number-pad" placeholder={country.currency === "XOF" ? "150 000" : "850"} />
                   </View>
                 </View>
               </View>
             ))}
             {multi && (
               <View style={{ marginTop: 16 }}>
-                <Button kind="soft" label="Ajouter un logement" onPress={() => setUnits((list) => [...list, { label: "", rooms: "", rent: list[list.length - 1]?.rent ?? "" }])} />
+                <Button kind="soft" label={`Ajouter ${profile.unit.feminine ? "une" : "un"} ${profile.unit.one}`} onPress={() => setUnits((list) => [...list, { label: "", measure: "", rent: list[list.length - 1]?.rent ?? "" }])} />
               </View>
             )}
           </>

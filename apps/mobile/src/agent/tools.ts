@@ -1,4 +1,4 @@
-import { AGENT_TOOLS, AUDIT_AREA_LABEL, formatMoney, isAgentTool, money, REAL_ESTATE_KIND_LABEL, type AgentToolInput, type AgentToolName, type Currency } from "@keyo/shared";
+import { AGENT_TOOLS, AUDIT_AREA_LABEL, formatMoney, isAgentTool, kindLabel, money, profileOf, type AgentToolInput, type AgentToolName, type Currency } from "@keyo/shared";
 import { currentMonth, monthName, nowIso, today } from "@/data/period";
 import { assetSummary, auditReport, formatPermille, isOpenEvent, monthSummary, partyName, yearFinance } from "@/data/selectors";
 import { getSession, getSettings } from "@/data/session";
@@ -38,7 +38,9 @@ const EXECUTORS: { [N in AgentToolName]: Executor<N> } = {
       return {
         assetId: a.id,
         name: a.name,
-        kind: REAL_ESTATE_KIND_LABEL[a.details.kind as keyof typeof REAL_ESTATE_KIND_LABEL] ?? String(a.details.kind),
+        type: profileOf(a.type).label,
+        kind: kindLabel(a.type, a.details.kind),
+        vocabulary: { unit: profileOf(a.type).unit.one, occupant: profileOf(a.type).occupant.one, amount: profileOf(a.type).amount },
         address: `${a.location.address}, ${a.location.city} (${a.location.country})`,
         currency: a.currency,
         monthlyRent: formatMoney(sum.monthlyRent),
@@ -185,14 +187,17 @@ const EXECUTORS: { [N in AgentToolName]: Executor<N> } = {
       asset: {
         id,
         ownerId: getSession().status === "signedIn" ? (getSession() as { user: { id: string } }).user.id : "owner",
-        type: "REAL_ESTATE",
+        type: input.type,
         name: input.name,
         location: { address: input.address, city: input.city, country: input.country.toUpperCase(), lat: 5.35, lng: -3.98 },
         details: { kind: input.kind },
         currency: input.currency,
         createdAt: nowIso(),
       },
-      units: input.units.map((u, i) => ({ id: `${id}-u${i + 1}`, assetId: id, type: "DWELLING", label: u.label, details: { rooms: u.rooms, askingRent: u.askingRent } })),
+      units: input.units.map((u, i) => {
+        const key = profileOf(input.type).measure?.key;
+        return { id: `${id}-u${i + 1}`, assetId: id, type: input.type, label: u.label, details: { ...(key && u.measure ? { [key]: u.measure } : {}), askingRent: u.askingRent } };
+      }),
       photos: [],
     });
     return ok({ assetId: id, unitIds: input.units.map((_, i) => `${id}-u${i + 1}`) }, `${input.name} créé`);
@@ -213,6 +218,22 @@ const EXECUTORS: { [N in AgentToolName]: Executor<N> } = {
       dueDay: input.dueDay,
     });
     return ok(r, `${input.firstName} invité`);
+  },
+
+  update_lease({ agreementId, amount, deposit, dueDay, endDate }) {
+    const g = getOwnerState().agreements.find((a) => a.id === agreementId);
+    if (!g) return fail(`Contrat introuvable : ${agreementId}`);
+    actions.updateLease(agreementId, { amount, deposit, dueDay, endDate });
+    return ok({ done: true }, "Contrat modifié");
+  },
+
+  update_unit({ unitId, label, askingRent, measure }) {
+    const s = getOwnerState();
+    const u = s.units.find((x) => x.id === unitId);
+    if (!u) return fail(`Unité introuvable : ${unitId}`);
+    const key = profileOf(s.assets.find((a) => a.id === u.assetId)?.type ?? "REAL_ESTATE").measure?.key;
+    actions.updateUnit(unitId, { label, details: { ...(askingRent !== undefined ? { askingRent } : {}), ...(key && measure ? { [key]: measure } : {}) } });
+    return ok({ done: true }, `${label ?? u.label} modifié`);
   },
 
   send_reminder({ agreementId, tone }) {
@@ -302,6 +323,20 @@ export function describeAction(name: string, input: Record<string, unknown>): st
       return `Créer le bien « ${input.name} » à ${input.city} avec ${(input.units as unknown[]).length} logement(s).`;
     case "invite_occupant":
       return `Créer le contrat de ${input.firstName} ${input.lastName} (${a}), loyer ${n(input.rent)}, caution ${n(input.deposit)}, à partir du ${input.startDate}, et l'inviter par SMS au ${input.phone}.`;
+    case "update_lease": {
+      const g = s.agreements.find((x) => x.id === input.agreementId);
+      const parts = [
+        typeof input.amount === "number" && `montant ${n(input.amount)}`,
+        typeof input.deposit === "number" && `caution ${n(input.deposit)}`,
+        input.dueDay && `échéance le ${input.dueDay}`,
+        input.endDate && `fin le ${input.endDate}`,
+      ].filter(Boolean);
+      return `Modifier le contrat de ${g ? partyName(s, g.partyId) : "l'occupant"} : ${parts.join(", ")}.`;
+    }
+    case "update_unit": {
+      const u = s.units.find((x) => x.id === input.unitId);
+      return `Modifier ${u?.label ?? "l'unité"}${input.label ? ` (nouveau nom : ${input.label})` : ""}${typeof input.askingRent === "number" ? `, montant demandé ${n(input.askingRent)}` : ""}.`;
+    }
     case "send_reminder": {
       const g = s.agreements.find((x) => x.id === input.agreementId);
       const tone = { COURTEOUS: "courtoise", FIRM: "ferme", FINAL: "de dernier rappel" }[input.tone as string] ?? "";

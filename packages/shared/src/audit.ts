@@ -1,5 +1,6 @@
 import type { Agreement, Asset, AssetEvent, AssetUnit, Document, MaintenancePlan, Mission, Party, ScheduleItem } from "./domain.ts";
 import { formatMoney } from "./money.ts";
+import { cap, profileOf } from "./modules/catalog.ts";
 import { dueStatus } from "./schedule.ts";
 import { daysBetween } from "./status.ts";
 
@@ -79,21 +80,24 @@ export function runAudit(input: AuditInput): AuditReport {
     return `${p ? `${p.firstName} ${p.lastName}` : "Occupant"}, ${asset(a.assetId)?.name ?? ""}${unit(a.unitId) ? ` (${unit(a.unitId)!.label})` : ""}`;
   };
 
+  const prof = (assetId: string) => profileOf(asset(assetId)?.type ?? "REAL_ESTATE");
+
   // Pièces des contrats en cours.
   for (const a of current) {
     const p = party(a.partyId);
+    const pr = prof(a.assetId);
     if (!hasAgreementDoc(input.documents, "LEASE", a, p))
       out.push({
         id: `doc-lease-${a.id}`,
         severity: "HIGH",
         area: "DOCUMENTS",
-        title: "Bail signé manquant",
-        detail: `Aucun bail signé n'est classé pour ${who(a)}. Sans lui, un recours en cas d'impayé est difficile.`,
+        title: `${cap(pr.agreement.one)} signé manquant`,
+        detail: `Aucun ${pr.agreement.one} signé n'est classé pour ${who(a)}. Sans lui, un recours en cas d'impayé est difficile.`,
         assetId: a.assetId,
         agreementId: a.id,
-        fix: { label: "Préparer le bail", prompt: `Aide-moi à régulariser le bail de ${who(a)} : que dois-je faire signer et classer ?` },
+        fix: { label: "Régulariser", prompt: `Aide-moi à régulariser le ${pr.agreement.one} de ${who(a)} : que dois-je faire signer et classer ?` },
       });
-    if (!hasAgreementDoc(input.documents, "INVENTORY", a, p))
+    if (pr.needsInventory && !hasAgreementDoc(input.documents, "INVENTORY", a, p))
       out.push({
         id: `doc-inventory-${a.id}`,
         severity: "MEDIUM",
@@ -130,13 +134,14 @@ export function runAudit(input: AuditInput): AuditReport {
   // Pièces des actifs.
   for (const as of input.assets) {
     const docs = input.documents.filter((d) => d.assetId === as.id);
+    const pr = profileOf(as.type);
     if (!docs.some((d) => d.kind === "TITLE_DEED"))
       out.push({
         id: `doc-title-${as.id}`,
         severity: "MEDIUM",
         area: "DOCUMENTS",
-        title: "Titre de propriété non classé",
-        detail: `${as.name} : aucun titre de propriété (titre foncier, ACD, acte notarié) dans les documents.`,
+        title: `${cap(pr.titleDoc.split(" ou ")[0]!)} non classé${pr.titleDoc.startsWith("carte") ? "e" : ""}`,
+        detail: `${as.name} : aucun ${pr.titleDoc.startsWith("carte") ? "exemplaire de la " : ""}${pr.titleDoc} dans les documents.`,
         assetId: as.id,
       });
     if (!docs.some((d) => d.kind === "INSURANCE"))
@@ -149,15 +154,15 @@ export function runAudit(input: AuditInput): AuditReport {
         assetId: as.id,
       });
     // Enregistrement des baux en Côte d'Ivoire.
-    if (as.location.country === "CI")
+    if (as.location.country === "CI" && pr.needsRegistration)
       for (const a of current.filter((l) => l.assetId === as.id))
         if (!hasAgreementDoc(input.documents, "REGISTRATION", a, party(a.partyId)))
           out.push({
             id: `fiscal-registration-${a.id}`,
             severity: "MEDIUM",
             area: "FISCAL",
-            title: "Bail non enregistré aux impôts",
-            detail: `Aucune preuve d'enregistrement du bail de ${who(a)} auprès de la DGI. À vérifier avec votre conseiller.`,
+            title: `${cap(pr.agreement.one)} non enregistré aux impôts`,
+            detail: `Aucune preuve d'enregistrement du ${pr.agreement.one} de ${who(a)} auprès de la DGI. À vérifier avec votre conseiller.`,
             assetId: as.id,
             agreementId: a.id,
           });
@@ -212,14 +217,15 @@ export function runAudit(input: AuditInput): AuditReport {
   for (const u of input.units) {
     if (current.some((a) => a.unitId === u.id)) continue;
     const ended = leases.filter((a) => a.unitId === u.id && a.endDate && a.endDate < today).map((a) => a.endDate!).sort().pop();
+    const pu = prof(u.assetId);
     out.push({
       id: `vacant-${u.id}`,
       severity: "LOW",
       area: "OCCUPANCY",
-      title: "Logement libre",
+      title: `${cap(pu.unit.one)} libre`,
       detail: `${asset(u.assetId)?.name ?? ""}, ${u.label} : libre${ended ? ` depuis le ${ended}` : ""}.`,
       assetId: u.assetId,
-      fix: { label: "Trouver un occupant", prompt: `${u.label} à ${asset(u.assetId)?.name ?? ""} est libre. Aide-moi à le relouer.` },
+      fix: { label: `Trouver un ${pu.occupant.one}`, prompt: `${u.label} à ${asset(u.assetId)?.name ?? ""} est libre. Aide-moi à trouver un ${pu.occupant.one}.` },
     });
   }
 

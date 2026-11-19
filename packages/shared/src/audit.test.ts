@@ -98,3 +98,10 @@ test("outils de l'agent : schémas JSON objets, confirmation selon le risque", (
   assert.equal(needsConfirmation("schedule_maintenance", "ALWAYS"), true);
   assert.equal(needsConfirmation("add_expense", "RISKY"), true);
 });
+
+test("véhicule : carte grise attendue, ni état des lieux ni enregistrement", () => {
+  const vehicle = { ...asset("a1", "CI"), type: "VEHICLE" as const, details: { kind: "TAXI" } };
+  const r = runAudit(base({ assets: [vehicle], documents: [doc("LEASE"), doc("INSURANCE"), doc("TAX_FILING", { year: 2025 })] }));
+  assert.ok(!r.findings.some((f) => f.id.startsWith("doc-inventory") || f.id.startsWith("fiscal-registration")));
+  assert.equal(r.findings.find((f) => f.id === "doc-title-a1")?.title, "Carte grise non classée");
+});

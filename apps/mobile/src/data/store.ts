@@ -2,6 +2,9 @@ import { useSyncExternalStore } from "react";
 import {
   addMonths,
   buildMonthlySchedule,
+  dueDateFor,
+  dueStatus,
+  profileOf,
   type Agreement,
   type Asset,
   type AssetEvent,
@@ -18,6 +21,12 @@ import {
 import { createDemoState, createEmptyState } from "./mock";
 import { KEYS, load, remove, save } from "./persist";
 import { addDays, currentMonth, nowIso, today } from "./period";
+
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const FAKE_FIRST = ["Adjoua", "Kouassi", "Aya", "Yao", "Mariétou", "Sékou", "Affoué", "Bakary", "Nadia", "Jean-Marc", "Salimata", "Hervé"];
+const FAKE_LAST = ["Kouadio", "Traoré", "N'Guessan", "Coulibaly", "Bamba", "Konan", "Diabaté", "Yapi", "Ouattara", "Gnagne"];
+/** Montant par défaut d'un occupant fictif, en FCFA (centimes pour l'euro, voir addFakeOccupant). */
+const FAKE_AMOUNT: Record<string, number> = { REAL_ESTATE: 120_000, PLANTATION: 250_000, FARM: 150_000, VEHICLE: 180_000, SHOP: 200_000 };
 
 /** Annuaire d'artisans fictif, en attendant le vrai réseau de prestataires notés. */
 const ARTISANS = [
@@ -141,8 +150,11 @@ export const actions = {
     });
   },
 
-  addUnit(assetId: string, label: string, rooms: number, rent: number) {
-    setState((s) => ({ ...s, units: [...s.units, { id: newId("u"), assetId, type: "DWELLING", label, details: { rooms, askingRent: rent } }] }));
+  addUnit(assetId: string, label: string, details: Record<string, unknown>): string {
+    const id = newId("u");
+    const type = state.assets.find((a) => a.id === assetId)?.type ?? "REAL_ESTATE";
+    setState((s) => ({ ...s, units: [...s.units, { id, assetId, type: type === "REAL_ESTATE" ? "DWELLING" : type, label, details }] }));
+    return id;
   },
 
   /**
@@ -183,6 +195,116 @@ export const actions = {
       documents: [...s.documents, leaseDoc],
     }));
     return { agreementId, partyId };
+  },
+
+  updateAsset(assetId: string, patch: { name?: string; address?: string; city?: string; details?: Record<string, unknown> }) {
+    setState((s) => ({
+      ...s,
+      assets: s.assets.map((a) =>
+        a.id !== assetId
+          ? a
+          : {
+              ...a,
+              name: patch.name ?? a.name,
+              location: { ...a.location, address: patch.address ?? a.location.address, city: patch.city ?? a.location.city },
+              details: patch.details ? { ...a.details, ...patch.details } : a.details,
+            },
+      ),
+    }));
+  },
+
+  updateUnit(unitId: string, patch: { label?: string; details?: Record<string, unknown> }) {
+    setState((s) => ({
+      ...s,
+      units: s.units.map((u) => (u.id === unitId ? { ...u, label: patch.label ?? u.label, details: patch.details ? { ...u.details, ...patch.details } : u.details } : u)),
+    }));
+  },
+
+  /** Retire une unité sans contrat en cours (l'historique des anciens contrats est conservé). */
+  deleteUnit(unitId: string): boolean {
+    if (state.agreements.some((g) => g.unitId === unitId && (!g.endDate || g.endDate >= today()))) return false;
+    setState((s) => ({ ...s, units: s.units.filter((u) => u.id !== unitId) }));
+    return true;
+  },
+
+  updateParty(partyId: string, patch: { firstName?: string; lastName?: string; phone?: string }) {
+    setState((s) => ({ ...s, parties: s.parties.map((p) => (p.id === partyId ? { ...p, ...patch } : p)) }));
+  },
+
+  /**
+   * Modifie un contrat. Seules les échéances à venir non payées sont recalculées (montant, date) :
+   * le passé et les sommes déjà reçues ne changent jamais.
+   */
+  updateLease(agreementId: string, patch: { amount?: number; deposit?: number; dueDay?: number; endDate?: string | null }) {
+    const now = today();
+    setState((s) => {
+      const g = s.agreements.find((a) => a.id === agreementId);
+      if (!g) return s;
+      const c = g.periodicAmount.currency;
+      const next: Agreement = {
+        ...g,
+        periodicAmount: patch.amount !== undefined ? { amount: patch.amount, currency: c } : g.periodicAmount,
+        deposit: patch.deposit !== undefined ? { amount: patch.deposit, currency: c } : g.deposit,
+        dueDay: patch.dueDay ?? g.dueDay,
+        endDate: patch.endDate === null ? undefined : (patch.endDate ?? g.endDate),
+      };
+      const schedule = s.schedule
+        .map((it) => {
+          if (it.agreementId !== agreementId || it.status === "PAID" || it.received.amount > 0 || it.dueDate <= now) return it;
+          const dueDate = dueDateFor(it.dueDate.slice(0, 7), next.dueDay);
+          const expected = next.periodicAmount;
+          return { ...it, dueDate, expected, status: dueStatus(expected, it.received, dueDate, now) };
+        })
+        .filter((it) => it.agreementId !== agreementId || !next.endDate || it.dueDate <= next.endDate || it.status === "PAID");
+      return { ...s, agreements: s.agreements.map((a) => (a.id === agreementId ? next : a)), schedule };
+    });
+  },
+
+  /**
+   * Occupant fictif sur une unité libre, pour tester : contrat commencé il y a quatre mois,
+   * échéances passées marquées payées. Le nom porte la mention « fictif ».
+   */
+  addFakeOccupant(unitId: string): string | null {
+    const unit = state.units.find((u) => u.id === unitId);
+    const asset = unit && state.assets.find((a) => a.id === unit.assetId);
+    if (!unit || !asset) return null;
+    if (state.agreements.some((g) => g.unitId === unitId && (!g.endDate || g.endDate >= today()))) return null;
+    const n = state.parties.length + seq;
+    const first = FAKE_FIRST[n % FAKE_FIRST.length]!;
+    const last = FAKE_LAST[(n * 7) % FAKE_LAST.length]!;
+    const fr = asset.location.country === "FR";
+    const phone = fr ? `+336${String(10_000_000 + ((n * 7919) % 89_999_999)).padStart(8, "0")}` : `+22507${String(10_000_000 + ((n * 7919) % 89_999_999)).padStart(8, "0")}`;
+    const asking = typeof unit.details.askingRent === "number" && unit.details.askingRent > 0 ? unit.details.askingRent : FAKE_AMOUNT[asset.type] ?? 100_000;
+    const amount = asset.currency === "XOF" ? asking : Math.max(asking, 50_000);
+    const start = `${addMonths(currentMonth(), -4)}-01`;
+    const { agreementId } = actions.createLease({
+      assetId: asset.id,
+      unitId,
+      tenant: { firstName: first, lastName: `${last} (fictif)`, phone },
+      startDate: start,
+      rent: { amount, currency: asset.currency },
+      deposit: { amount: asset.type === "REAL_ESTATE" ? amount * 2 : 0, currency: asset.currency },
+      dueDay: 5,
+    });
+    const now = today();
+    setState((s) => {
+      const paidTx: Transaction[] = [];
+      const schedule = s.schedule.map((it) => {
+        if (it.agreementId !== agreementId || it.dueDate > now) return it;
+        paidTx.push({ id: newId("t"), assetId: asset.id, scheduleItemId: it.id, direction: "IN", category: "RENT", amount: it.expected, occurredAt: `${it.dueDate}T09:00:00.000Z`, confirmedBy: "WEBHOOK", label: `${cap(profileOf(asset.type).amount)} (fictif)` });
+        return { ...it, received: it.expected, status: "PAID" as const };
+      });
+      return { ...s, schedule, transactions: [...s.transactions, ...paidTx] };
+    });
+    return agreementId;
+  },
+
+  /** Occupants fictifs sur toutes les unités libres. Renvoie le nombre créé. */
+  addFakeOccupants(): number {
+    const occupied = new Set(state.agreements.filter((g) => !g.endDate || g.endDate >= today()).map((g) => g.unitId));
+    const free = state.units.filter((u) => !occupied.has(u.id));
+    free.forEach((u) => actions.addFakeOccupant(u.id));
+    return free.length;
   },
 
   /** Met fin au bail : les échéances futures non payées sont retirées. */

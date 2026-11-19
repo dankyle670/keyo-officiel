@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Currency } from "./money.ts";
-import { DocumentKind, MissionKind, Urgency } from "./domain.ts";
-import { RealEstateKind } from "./modules/real-estate.ts";
+import { AssetType, DocumentKind, MissionKind, Urgency } from "./domain.ts";
+import { ASSET_PROFILES } from "./modules/catalog.ts";
 
 /**
  * Outils de l'agent Keyo. Le serveur (apps/api) les décrit à Claude ; l'app les exécute sur les
@@ -96,15 +96,26 @@ export const AGENT_TOOLS = {
     kind: "write",
     risk: "low",
     label: "Création d'un bien",
-    description: "Crée un bien immobilier avec ses logements.",
+    description: `Crée un actif avec ses unités. Types et sous-types (kind) : ${Object.values(ASSET_PROFILES)
+      .map((p) => `${p.type} (${p.label}, unités = ${p.unit.many}) : ${Object.keys(p.kinds).join(", ")}`)
+      .join(" ; ")}.`,
     input: z.object({
+      type: AssetType.default("REAL_ESTATE"),
       name: z.string().min(1),
-      kind: RealEstateKind,
+      kind: z.string().describe("Sous-type du type choisi, par exemple HOUSE, COCOA, TAXI"),
       address: z.string(),
       city: z.string(),
       country: z.string().length(2).describe("Code pays ISO, par exemple CI ou FR"),
       currency: Currency,
-      units: z.array(z.object({ label: z.string(), rooms: z.number().int().positive(), askingRent: minor.optional() })).min(1),
+      units: z
+        .array(
+          z.object({
+            label: z.string(),
+            measure: z.number().positive().optional().describe("Pièces (immobilier), hectares (plantation), têtes (élevage), m² (commerce)"),
+            askingRent: minor.optional(),
+          }),
+        )
+        .min(1),
     }),
   },
   invite_occupant: {
@@ -124,6 +135,26 @@ export const AGENT_TOOLS = {
       currency: Currency,
       dueDay: z.number().int().min(1).max(28),
     }),
+  },
+  update_lease: {
+    kind: "write",
+    risk: "high",
+    label: "Modification d'un contrat",
+    description: "Modifie un contrat en cours : montant périodique (loyer, redevance, versement), caution, jour d'échéance ou date de fin. Les échéances futures non payées sont recalculées ; le passé ne change pas.",
+    input: z.object({
+      agreementId: z.string(),
+      amount: minor.optional(),
+      deposit: minor.optional(),
+      dueDay: z.number().int().min(1).max(28).optional(),
+      endDate: date.optional(),
+    }),
+  },
+  update_unit: {
+    kind: "write",
+    risk: "low",
+    label: "Modification d'une unité",
+    description: "Renomme une unité (logement, parcelle, véhicule…) ou change le montant demandé pour le prochain occupant.",
+    input: z.object({ unitId: z.string(), label: z.string().min(1).optional(), askingRent: minor.optional(), measure: z.number().positive().optional() }),
   },
   send_reminder: {
     kind: "write",

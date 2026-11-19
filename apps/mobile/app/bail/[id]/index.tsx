@@ -2,7 +2,7 @@ import { useMemo, type ReactNode } from "react";
 import { Alert, Linking, Pressable, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { BellRing, MessageCircle, MessagesSquare, Phone, Receipt } from "lucide-react-native";
-import { daysBetween, reminderPlan, type DueStatus } from "@keyo/shared";
+import { cap, daysBetween, profileOf, reminderPlan, type DueStatus } from "@keyo/shared";
 import { color, radius } from "@keyo/tokens";
 import { capitalize, dayMonth, fullDate, monthName, monthYear, today } from "@/data/period";
 import { leaseView } from "@/data/selectors";
@@ -41,9 +41,10 @@ export default function LeaseDetail() {
   const late = items.filter((it) => it.status === "LATE" || it.status === "UNPAID" || it.status === "PARTIAL").sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   const oldestLate = late[0];
   const ended = !!g.endDate && g.endDate < today();
+  const profile = profileOf(asset.type);
 
   const endLease = () =>
-    Alert.alert("Mettre fin au bail ?", `Le bail de ${name} se terminera aujourd'hui. Les échéances futures seront retirées.`, [
+    Alert.alert(`Mettre fin au ${profile.agreement.one} ?`, `Le ${profile.agreement.one} de ${name} se terminera aujourd'hui. Les échéances futures seront retirées.`, [
       { text: "Annuler", style: "cancel" },
       { text: "Mettre fin", style: "destructive", onPress: () => actions.endLease(g.id, today()) },
     ]);
@@ -57,7 +58,7 @@ export default function LeaseDetail() {
       </View>
 
       <View style={{ marginTop: 22, padding: 20, borderRadius: radius.card, backgroundColor: color.surfaceRaised, gap: 14 }}>
-        <Term label="Loyer" value={<Amount value={g.periodicAmount} variant="rowTitle" />} />
+        <Term label={cap(profile.amount)} value={<Amount value={g.periodicAmount} variant="rowTitle" />} />
         {g.deposit && <Term label="Caution" value={<Amount value={g.deposit} variant="rowTitle" />} />}
         <Term label="Échéance" value={<Text variant="rowTitle">Le {g.dueDay} de chaque mois</Text>} />
         <Term label={g.startDate > today() ? "Entrée prévue" : "Depuis"} value={<Text variant="rowTitle">{fullDate(g.startDate)}</Text>} />
@@ -109,7 +110,9 @@ export default function LeaseDetail() {
 
       {!ended && (
         <View style={{ marginTop: 28 }}>
-          <Button kind="soft" label="Mettre fin au bail" onPress={endLease} />
+          <Button kind="secondary" label="Modifier les conditions" onPress={() => router.push({ pathname: "/bail/[id]/modifier", params: { id: g.id } })} />
+          <View style={{ height: 12 }} />
+          <Button kind="soft" label={`Mettre fin au ${profile.agreement.one}`} onPress={endLease} />
         </View>
       )}
       <Text variant="caption" tone="inkMuted" style={{ marginTop: 16 }}>

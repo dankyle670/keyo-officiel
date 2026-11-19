@@ -3,7 +3,7 @@ import { Alert, Image, ScrollView, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChevronLeft, DoorOpen, Ellipsis, FileText, MessageCircle, TrendingUp, UserPlus } from "lucide-react-native";
-import { formatAmount, money } from "@keyo/shared";
+import { cap, formatAmount, money, profileOf } from "@keyo/shared";
 import { color, radius } from "@keyo/tokens";
 import { eventIcon } from "@/data/icons";
 import { buildMarkers } from "@/data/markers";
@@ -23,6 +23,8 @@ export default function AssetDetail() {
   const state = useOwnerState((s) => s);
   const asset = state.assets.find((a) => a.id === id);
   const [menu, setMenu] = useState(false);
+  /** Unité libre sélectionnée : inviter un vrai occupant ou en créer un fictif. */
+  const [vacant, setVacant] = useState<string | null>(null);
 
   const data = useMemo(() => {
     if (!asset) return null;
@@ -50,7 +52,10 @@ export default function AssetDetail() {
   }
 
   const { summary, lines, finance, year, incidents, docs } = data;
-  const rooms = summary.units.reduce((n, u) => n + (typeof u.details.rooms === "number" ? u.details.rooms : 0), 0);
+  const profile = profileOf(asset.type);
+  const mkey = profile.measure?.key;
+  const measure = summary.units.reduce((n, u) => n + (mkey && typeof u.details[mkey] === "number" ? (u.details[mkey] as number) : 0), 0);
+  const unitWord = (n: number) => (n > 1 ? profile.unit.many : profile.unit.one);
   const photos = docs.filter((d) => d.kind === "PHOTO" && d.url);
   const receipts = docs.filter((d) => d.kind === "RECEIPT").length;
   const docLabels = [
@@ -99,16 +104,17 @@ export default function AssetDetail() {
           {asset.name}
         </Text>
         <Text variant="body" tone="inkMuted" style={{ marginTop: 4 }}>
-          {asset.location.address}, {asset.location.city}. {summary.units.length === 1 ? `1 logement${rooms ? ` de ${rooms} pièce${rooms > 1 ? "s" : ""}` : ""}` : `${summary.units.length} logements`}.
+          {asset.location.address}, {asset.location.city}. {summary.units.length} {unitWord(summary.units.length)}
+          {measure && profile.measure ? `, ${String(measure).replace(".", ",")} ${profile.measure.suffix.replace("(s)", measure > 1 ? "s" : "")}` : ""}.
         </Text>
 
         <View style={{ flexDirection: "row", marginTop: 26, marginBottom: 6 }}>
-          <Figure label="Loyer" value={formatAmount(summary.monthlyRent)} />
+          <Figure label={cap(profile.amount)} value={formatAmount(summary.monthlyRent)} />
           <Figure label="Rentabilité" value={summary.grossYieldPermille !== undefined ? formatPermille(summary.grossYieldPermille) : "–"} />
           <Figure label="Occupé" value={summary.units.length === 0 ? "–" : summary.vacantUnits.length === 0 ? "oui" : summary.leases.length === 0 ? "non" : `${summary.leases.length} sur ${summary.units.length}`} />
         </View>
 
-        <SectionTitle>{summary.units.length > 1 ? "Logements" : "Locataire"}</SectionTitle>
+        <SectionTitle>{summary.units.length > 1 ? cap(profile.unit.many) : cap(profile.occupant.one)}</SectionTitle>
         {summary.units.map((u, i) => {
           const lease = summary.leases.find((g) => g.unitId === u.id);
           if (!lease) {
@@ -118,10 +124,10 @@ export default function AssetDetail() {
                 key={u.id}
                 divider={i > 0}
                 leading={<IconCircle icon={DoorOpen} bg="surfaceSoft" fg="inkMuted" />}
-                title={summary.units.length > 1 ? u.label : "Logement libre"}
-                subtitle={asking ? `Libre, loyer proposé ${formatAmount(money(asking, asset.currency))}` : "Libre"}
-                trailing={<Status tone="info" label="Inviter" />}
-                onPress={() => router.push({ pathname: "/bien/[id]/inviter", params: { id: asset.id, unit: u.id } })}
+                title={summary.units.length > 1 ? u.label : `${cap(profile.unit.one)} libre`}
+                subtitle={asking ? `Libre, ${profile.amount} proposé ${formatAmount(money(asking, asset.currency))}` : "Libre"}
+                trailing={<Status tone="info" label="Pourvoir" />}
+                onPress={() => setVacant(u.id)}
               />
             );
           }
@@ -134,7 +140,7 @@ export default function AssetDetail() {
               divider={i > 0}
               leading={<IconCircle initials={initialsOf(name)} bg="mintTint" fg="mintDeep" />}
               title={name}
-              subtitle={`${summary.units.length > 1 ? `${u.label}, ` : ""}${future ? "arrive en" : "locataire depuis"} ${monthYear(lease.startDate)}`}
+              subtitle={`${summary.units.length > 1 ? `${u.label}, ` : ""}${future ? "arrive en" : `${profile.occupant.one} depuis`} ${monthYear(lease.startDate)}`}
               trailing={
                 future ? (
                   <Status tone="info" label="À venir" />
@@ -186,10 +192,36 @@ export default function AssetDetail() {
         </View>
       )}
 
+      <Sheet visible={!!vacant} onClose={() => setVacant(null)} title={summary.units.find((u) => u.id === vacant)?.label ?? cap(profile.unit.one)}>
+        <SheetAction
+          label={`Inviter un ${profile.occupant.one}`}
+          onPress={() => {
+            const unit = vacant;
+            setVacant(null);
+            if (unit) router.push({ pathname: "/bien/[id]/inviter", params: { id: asset.id, unit } });
+          }}
+        />
+        <SheetAction
+          label={`Créer un ${profile.occupant.one} fictif`}
+          onPress={() => {
+            const unit = vacant;
+            setVacant(null);
+            if (unit) actions.addFakeOccupant(unit);
+          }}
+        />
+      </Sheet>
+
       <Sheet visible={menu} onClose={() => setMenu(false)} title={asset.name}>
+        <SheetAction
+          label="Modifier le bien"
+          onPress={() => {
+            setMenu(false);
+            router.push({ pathname: "/bien/[id]/modifier", params: { id: asset.id } });
+          }}
+        />
         {summary.vacantUnits[0] && (
           <SheetAction
-            label="Inviter un locataire"
+            label={`Inviter un ${profile.occupant.one}`}
             onPress={() => {
               setMenu(false);
               router.push({ pathname: "/bien/[id]/inviter", params: { id: asset.id, unit: summary.vacantUnits[0]!.id } });
@@ -197,12 +229,12 @@ export default function AssetDetail() {
           />
         )}
         <SheetAction
-          label="Ajouter un logement"
+          label={`Ajouter ${profile.unit.feminine ? "une" : "un"} ${profile.unit.one}`}
           onPress={() => {
             setMenu(false);
             const last = summary.units[summary.units.length - 1];
             const rent = last && typeof last.details.askingRent === "number" ? last.details.askingRent : 0;
-            actions.addUnit(asset.id, `Logement ${summary.units.length + 1}`, 1, rent);
+            actions.addUnit(asset.id, `${cap(profile.unit.one)} ${summary.units.length + 1}`, { askingRent: rent });
           }}
         />
         <SheetAction

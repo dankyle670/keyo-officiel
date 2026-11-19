@@ -58,7 +58,9 @@ export default function RootLayout() {
             <Stack.Screen name="bien/[id]/finances" />
             <Stack.Screen name="bien/[id]/depense" options={{ presentation: "modal" }} />
             <Stack.Screen name="bien/[id]/inviter" options={{ presentation: "modal" }} />
-            <Stack.Screen name="bail/[id]" />
+            <Stack.Screen name="bien/[id]/modifier" options={{ presentation: "modal" }} />
+            <Stack.Screen name="bail/[id]/modifier" options={{ presentation: "modal" }} />
+            <Stack.Screen name="bail/[id]/index" />
             <Stack.Screen name="incident/[id]" />
             <Stack.Screen name="messages/[partyId]" />
             <Stack.Screen name="notifications" />

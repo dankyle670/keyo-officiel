@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Pressable, View } from "react-native";
 import { router } from "expo-router";
 import { Plus } from "lucide-react-native";
+import { kindLabel, profileOf } from "@keyo/shared";
 import { color } from "@keyo/tokens";
 import { assetKindIcon } from "@/data/icons";
 import { currentMonth, today } from "@/data/period";
@@ -38,7 +39,7 @@ export default function AssetsList() {
       }
     >
       <Text variant="rowSubtitle" tone="inkMuted" style={{ marginTop: 6, marginBottom: 16 }}>
-        {rows.length} bien{rows.length > 1 ? "s" : ""}, {unitCount} logement{unitCount > 1 ? "s" : ""}
+        {rows.length} bien{rows.length > 1 ? "s" : ""}, {unitCount} unité{unitCount > 1 ? "s" : ""}
       </Text>
 
       {rows.length === 0 ? (
@@ -55,7 +56,7 @@ export default function AssetsList() {
             divider={i > 0}
             leading={<IconCircle icon={assetKindIcon(asset.details.kind)} />}
             title={asset.name}
-            subtitle={`${asset.location.address.split(",")[0]} · ${summary.units.length} logement${summary.units.length > 1 ? "s" : ""}`}
+            subtitle={`${kindLabel(asset.type, asset.details.kind)} · ${asset.location.address.split(",")[0]} · ${summary.units.length} ${summary.units.length > 1 ? profileOf(asset.type).unit.many : profileOf(asset.type).unit.one}`}
             trailing={
               <>
                 <Amount value={summary.monthlyRent} variant="rowTitle" />

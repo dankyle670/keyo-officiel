@@ -187,6 +187,14 @@ function Data() {
   const user = useUser();
   const settings = useSettings();
   const assetCount = useOwnerState((s) => s.assets.length);
+  const freeUnits = useOwnerState((s) => {
+    const busy = new Set(s.agreements.filter((g) => !g.endDate || g.endDate >= new Date().toISOString().slice(0, 10)).map((g) => g.unitId));
+    return s.units.filter((u) => !busy.has(u.id)).length;
+  });
+  const fakes = () => {
+    const n = actions.addFakeOccupants();
+    Alert.alert("Occupants fictifs créés", `${n} occupant${n > 1 ? "s" : ""} fictif${n > 1 ? "s" : ""}, avec quatre mois d'échéances payées. Leur nom porte la mention « fictif ».`);
+  };
   const exportData = () =>
     Share.share({ title: "Mes données Keyo", message: JSON.stringify({ exportedAt: new Date().toISOString(), profile: { ...user, settings }, data: getOwnerState() }, null, 2) });
   const reset = () =>
@@ -206,6 +214,9 @@ function Data() {
       <SettingsGroup footer="Vos données sont enregistrées sur ce téléphone. L'export produit un fichier lisible que vous pouvez conserver.">
         <ActionRow title="Exporter mes données" onPress={exportData} />
         {assetCount === 0 ? <ActionRow title="Charger les données de démonstration" onPress={() => actions.loadDemo(user.id)} /> : null}
+      </SettingsGroup>
+      <SettingsGroup footer="Pour tester l'app : un occupant fictif est créé sur chaque unité libre (logement, parcelle, véhicule…).">
+        <ActionRow title={freeUnits ? `Occupants fictifs (${freeUnits} unité${freeUnits > 1 ? "s" : ""} libre${freeUnits > 1 ? "s" : ""})` : "Aucune unité libre"} onPress={freeUnits ? fakes : () => undefined} />
       </SettingsGroup>
       <SettingsGroup>
         <ActionRow title="Effacer toutes les données" destructive onPress={reset} />
