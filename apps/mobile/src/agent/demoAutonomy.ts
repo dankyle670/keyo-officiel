@@ -1,4 +1,4 @@
-import { SPECIALIST_LABEL, type AutonomousAction, type AutonomyLevel } from "@keyo/shared";
+import { capabilities, NEVER_DOES, SPECIALIST_LABEL, type AutonomousAction, type AutonomyLevel } from "@keyo/shared";
 import { autonomousApi } from "@/autonomous/api";
 import { syncNow } from "@/autonomous/sync";
 import type { DemoReply } from "./demo";
@@ -23,8 +23,22 @@ const ACTION_WORDS: [RegExp, AutonomousAction][] = [
 
 const LINK = { label: "Ouvrir ce que Keyo a fait", href: "/agent" };
 
+const STATUS_NOTE = { READY: "", READY_SIMULATED: " (prête, en attente du connecteur)", ASKS_YOU: " (avec votre accord)", OFF: " (désactivée)" } as const;
+
+/** « Que sais-tu faire ? » : tout le catalogue, avec le statut réel de chaque action. */
+async function capabilitiesReply(): Promise<DemoReply> {
+  const [connectors, policy] = await Promise.all([autonomousApi.connectors().catch(() => []), autonomousApi.policy().catch(() => undefined)]);
+  const groups = capabilities(connectors.filter((c) => !c.simulated).map((c) => c.channel), policy);
+  const body = groups.map((g) => `${g.domain}\n${g.actions.map((a) => `- ${a.what}${a.mode === "Seul" ? ", seul" : ""}${STATUS_NOTE[a.status]}`).join("\n")}`).join("\n\n");
+  return {
+    text: `Voici tout ce que je sais faire pour vous, sur demande dans ce chat ou seul en votre absence :\n\n${body}\n\nJe ne ferai jamais : ${NEVER_DOES.join(", ")}.\n\nPar quel domaine voulez-vous commencer ?\nSources : catalogue de l'agent Keyo`,
+    link: { label: "Régler mon autonomie", href: "/agent/autonomie" },
+  };
+}
+
 export async function demoAutonomyReply(question: string): Promise<DemoReply | null> {
   const q = norm(question);
+  if (/(que (sais|peux|pouvez|savez)|quelles? actions?|tu sers a quoi|a quoi (tu sers|servez)|tes (fonctions|capacites)|qu.?est.?ce que tu (sais|peux))/.test(q)) return capabilitiesReply();
   const about = /(keyo|agent|autonom|en mon absence|sans moi|tout seul|seul\b|journal|attente|a valider|accord|plafond|pause)/.test(q);
   if (!about) return null;
 

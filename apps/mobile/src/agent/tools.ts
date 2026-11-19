@@ -1,4 +1,4 @@
-import { AUTONOMY_LEVEL_LABEL, actionDef, isAutonomousAction, SPECIALIST_LABEL, AGENT_TOOLS, borrowingCapacity, PASSPORT_LEVEL_LABEL, appraisalKind, appraisalQuestions, appraise, AUDIT_AREA_LABEL, CONFIDENCE_LABEL, formatMoney, formatShare, isAgentTool, kindLabel, money, profileOf, valueAsset, type AgentToolInput, type AgentToolName, type Currency } from "@keyo/shared";
+import { capabilities, NEVER_DOES, AUTONOMY_LEVEL_LABEL, actionDef, isAutonomousAction, SPECIALIST_LABEL, AGENT_TOOLS, borrowingCapacity, PASSPORT_LEVEL_LABEL, appraisalKind, appraisalQuestions, appraise, AUDIT_AREA_LABEL, CONFIDENCE_LABEL, formatMoney, formatShare, isAgentTool, kindLabel, money, profileOf, valueAsset, type AgentToolInput, type AgentToolName, type Currency } from "@keyo/shared";
 import { currentMonth, monthName, nowIso, today } from "@/data/period";
 import { passportOf, assetHolders, assetSummary, auditReport, familyAssets, familyHolders, formatPermille, isOpenEvent, latestAppraisal, monthSummary, partyName, portfolioValue, yearFinance } from "@/data/selectors";
 import { getSession, getSettings } from "@/data/session";
@@ -433,6 +433,20 @@ const EXECUTORS: { [N in AgentToolName]: Executor<N> } = {
     if (!assetName(input.assetId)) return fail(`Bien introuvable : ${input.assetId}`);
     const r = actions.assignMission(input);
     return ok(r, `Mission confiée pour le ${input.dueDate}`);
+  },
+  async get_capabilities() {
+    // Connecteurs et réglages lus sur le serveur ; hors ligne, tout canal de message est considéré simulé.
+    const [connectors, policy] = await Promise.all([autonomousApi.connectors().catch(() => []), autonomousApi.policy().catch(() => undefined)]);
+    const connected = connectors.filter((c) => !c.simulated).map((c) => c.channel);
+    return ok(
+      {
+        groups: capabilities(connected, policy),
+        connectors: connectors.length ? connectors.filter((c) => c.channel !== "APP").map((c) => ({ canal: c.label.replace(" (simulé)", ""), etat: c.simulated ? "simulé" : "connecté" })) : "serveur injoignable : canaux considérés comme simulés",
+        agentEnabled: policy?.enabled ?? null,
+        neverDoes: NEVER_DOES,
+      },
+      "Catalogue des actions",
+    );
   },
   async get_autonomous_activity() {
     await syncNow();

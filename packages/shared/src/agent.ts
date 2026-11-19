@@ -294,6 +294,13 @@ export const AGENT_TOOLS = {
       managerPhone: z.string().optional(),
     }),
   },
+  get_capabilities: {
+    kind: "read",
+    label: "Ce que je sais faire",
+    description:
+      "Catalogue complet des actions de l'agent Keyo, par domaine : celles faites sur demande dans le chat et celles faites seul en l'absence du propriétaire, avec leur statut (prête, prête mais canal simulé en attente de connecteur, soumise à accord, désactivée) et les connecteurs branchés. À appeler dès qu'on demande ce que vous savez faire, quelles actions vous pouvez faire ou à quoi vous servez.",
+    input: z.object({}),
+  },
   get_autonomous_activity: {
     kind: "read",
     label: "Ce que Keyo a fait",
