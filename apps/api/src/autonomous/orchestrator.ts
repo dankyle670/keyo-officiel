@@ -2,6 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { formatMoney, SPECIALIST_LABEL, type AutonomousAction, type Specialist } from "@keyo/shared";
 import { MODEL } from "../agent/agent.service.ts";
 import type { ActionGate, Clock, GateOutcome } from "./gate.ts";
+import { frDate } from "./actions.ts";
 import { isActionOf, isRead, runRead, SPECIALIST_SYSTEM, specialistTools } from "./specialists.ts";
 import type { AgentRun, AgentStore, OwnerSnapshot, Trigger } from "./store.ts";
 import { craftsmen, endingAgreements, monthSummary, openIncidents, overdueRents, recentlyPaid, vacantUnits } from "./views.ts";
@@ -153,8 +154,8 @@ export class Orchestrator {
       if (specialist === "COLLECTION") {
         for (const o of overdueRents(s, today)) {
           const first = o.occupant.split(" ")[0];
-          if (o.daysLate >= 10) await act(specialist, "send_payment_link", { scheduleItemId: o.scheduleItemId, message: `Bonjour ${first}, votre loyer du ${o.dueDate} (${o.due}) reste à régler. Vous pouvez payer directement par ce lien. ${sign}.` });
-          else if (o.daysLate >= 1) await act(specialist, "send_rent_reminder", { scheduleItemId: o.scheduleItemId, message: `Bonjour ${first}, sauf erreur de notre part, le loyer du ${o.dueDate} (${o.due}) n'est pas encore réglé. Merci de faire le nécessaire. ${sign}.` });
+          if (o.daysLate >= 10) await act(specialist, "send_payment_link", { scheduleItemId: o.scheduleItemId, message: `Bonjour ${first}, votre loyer du ${frDate(o.dueDate)} (${o.due}) reste à régler. Vous pouvez payer directement par ce lien. ${sign}.` });
+          else if (o.daysLate >= 1) await act(specialist, "send_rent_reminder", { scheduleItemId: o.scheduleItemId, message: `Bonjour ${first}, sauf erreur de notre part, le loyer du ${frDate(o.dueDate)} (${o.due}) n'est pas encore réglé. Merci de faire le nécessaire. ${sign}.` });
         }
         for (const p of recentlyPaid(s, today, 3)) await act(specialist, "send_receipt", { scheduleItemId: p.scheduleItemId });
       }

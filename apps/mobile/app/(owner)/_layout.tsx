@@ -1,9 +1,13 @@
 import { Tabs } from "expo-router/tabs";
 import { color } from "@keyo/tokens";
+import { useAutonomousSync } from "@/autonomous/sync";
+import { useUser } from "@/data/session";
 import { FloatingTabBar } from "@/ui";
 
 /** Navigation propriétaire : Accueil (carte) · Biens · Loyers · Incidents · Assistant. */
 export default function OwnerLayout() {
+  // Données envoyées au serveur des agents autonomes, et leurs actions rapatriées.
+  useAutonomousSync(useUser());
   return (
     <Tabs
       tabBar={(props) => <FloatingTabBar {...props} />}

@@ -77,6 +77,9 @@ export default function RootLayout() {
             <Stack.Screen name="recherche" />
             <Stack.Screen name="profil" />
             <Stack.Screen name="controle" />
+            <Stack.Screen name="agent/index" />
+            <Stack.Screen name="agent/autonomie" />
+            <Stack.Screen name="agent/connexions" />
             <Stack.Screen name="reglages/[section]" />
             <Stack.Screen name="aide" />
             <Stack.Screen name="mentions" />

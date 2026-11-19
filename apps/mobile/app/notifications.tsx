@@ -1,15 +1,15 @@
 import { useEffect, useMemo } from "react";
 import { router } from "expo-router";
-import { BellRing, Droplet, Wallet } from "lucide-react-native";
+import { BellRing, Bot, Droplet, Wallet } from "lucide-react-native";
 import { nowIso, sinceLabel } from "@/data/period";
 import { notificationFeed } from "@/data/selectors";
 import { useUser } from "@/data/session";
 import { actions, getOwnerState, useOwnerState } from "@/data/store";
 import { EmptyState, IconCircle, ListRow, Status, SubScreen } from "@/ui";
 
-const ICON = { paid: Wallet, late: BellRing, danger: Droplet } as const;
-const BG = { paid: "mintTint", late: "amberTint", danger: "dangerTint" } as const;
-const FG = { paid: "mintDeep", late: "amber", danger: "danger" } as const;
+const ICON = { paid: Wallet, late: BellRing, danger: Droplet, agent: Bot } as const;
+const BG = { paid: "mintTint", late: "amberTint", danger: "dangerTint", agent: "mintTint" } as const;
+const FG = { paid: "mintDeep", late: "amber", danger: "danger", agent: "mintDeep" } as const;
 
 /** Notifications : loyer reçu, retard, nouvel incident. */
 export default function Notifications() {

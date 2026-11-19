@@ -87,7 +87,14 @@ export type OwnerState = {
   /** Passeport propriétaire : revenus déclarés et partages. */
   passport: PassportState;
   notificationsReadAt: string;
+  /** Avis des agents autonomes (rappels, rapports, actions faites), reçus du serveur. */
+  agentNotices: AgentNotice[];
 };
+
+export type AgentNotice = { id: string; at: string; title: string; body: string; href?: string };
+
+/** Modification décidée par un agent autonome côté serveur, à appliquer ici une seule fois. */
+export type AgentMutation = { id: string; type: string; payload: Record<string, unknown>; createdAt: string };
 
 /**
  * Magasin local, persisté sur le téléphone (hors ligne d'abord). Il sera branché sur l'API
@@ -115,6 +122,12 @@ export function useOwnerState<T>(select: (s: OwnerState) => T): T {
 }
 
 export const getOwnerState = () => state;
+
+/** Abonnement hors React (synchronisation avec le serveur). */
+export const subscribeOwnerState = (l: () => void) => {
+  listeners.add(l);
+  return () => void listeners.delete(l);
+};
 
 let seq = 0;
 const newId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${(seq++).toString(36)}`;
@@ -540,6 +553,42 @@ export const actions = {
 
   completeMission(id: string, report: string) {
     setState((s) => ({ ...s, missions: s.missions.map((m) => (m.id === id ? { ...m, status: "DONE", report } : m)) }));
+  },
+
+  /** Applique ce que les agents autonomes ont fait (quittance, incident qualifié, rappel…). */
+  applyAgentMutations(muts: AgentMutation[]) {
+    if (!muts.length) return;
+    setState((s) => {
+      let next = { ...s };
+      const notices: AgentNotice[] = [];
+      for (const m of muts) {
+        const p = m.payload;
+        if (next.agentNotices.some((n) => n.id === m.id)) continue;
+        if (m.type === "event.update" && typeof p.eventId === "string") {
+          const patch: Partial<AssetEvent> = {};
+          if (typeof p.category === "string") patch.category = p.category;
+          if (p.urgency === "LOW" || p.urgency === "MEDIUM" || p.urgency === "HIGH") patch.urgency = p.urgency;
+          if (typeof p.aiSummary === "string") patch.aiSummary = p.aiSummary;
+          if (p.status === "OPEN" || p.status === "QUOTES_PENDING" || p.status === "SCHEDULED" || p.status === "RESOLVED") patch.status = p.status;
+          if (typeof p.scheduledAt === "string") patch.scheduledAt = p.scheduledAt;
+          next = { ...next, events: next.events.map((e) => (e.id === p.eventId ? { ...e, ...patch } : e)) };
+          const e = next.events.find((x) => x.id === p.eventId);
+          if (e) notices.push({ id: m.id, at: m.createdAt, title: patch.aiSummary ? "Incident qualifié par Keyo" : "Incident mis à jour par Keyo", body: e.title, href: `/incident/${e.id}` });
+        } else if (m.type === "receipt.issue" && typeof p.scheduleItemId === "string") {
+          const it = next.schedule.find((x) => x.id === p.scheduleItemId);
+          const g = it && next.agreements.find((a) => a.id === it.agreementId);
+          if (it && g) {
+            next = { ...next, documents: [...next.documents, { id: newId("d"), assetId: g.assetId, agreementId: g.id, kind: "RECEIPT", label: `Quittance du ${it.dueDate}`, url: "", createdAt: m.createdAt }] };
+            notices.push({ id: m.id, at: m.createdAt, title: "Quittance envoyée", body: `Échéance du ${it.dueDate}`, href: `/bail/${g.id}` });
+          }
+        } else if (m.type === "mission.create") {
+          notices.push({ id: m.id, at: m.createdAt, title: "Visite planifiée", body: String(p.label ?? ""), href: typeof p.assetId === "string" ? `/bien/${p.assetId}` : undefined });
+        } else if (m.type === "notification") {
+          notices.push({ id: m.id, at: m.createdAt, title: String(p.title ?? "Keyo"), body: String(p.body ?? ""), href: typeof p.link === "string" ? p.link : undefined });
+        }
+      }
+      return { ...next, agentNotices: [...next.agentNotices, ...notices].slice(-100) };
+    });
   },
 
   markNotificationsRead() {

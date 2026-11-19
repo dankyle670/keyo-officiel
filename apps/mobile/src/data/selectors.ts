@@ -166,12 +166,16 @@ export function leaseView(s: OwnerState, agreementId: string) {
   return { agreement: g, party, asset, unit, items };
 }
 
-export type NotificationItem = { id: string; at: string; tone: "paid" | "late" | "danger"; title: string; body: string; href: string };
+export type NotificationItem = { id: string; at: string; tone: "paid" | "late" | "danger" | "agent"; title: string; body: string; href: string };
 
 /** Fil de notifications, dérivé des données (côté API : push + SMS de secours). */
 export function notificationFeed(s: OwnerState, now: string, autoReminders: boolean): NotificationItem[] {
   const since = new Date(Date.parse(now) - 30 * 86_400_000).toISOString();
   const out: NotificationItem[] = [];
+  for (const n of s.agentNotices ?? []) {
+    if (n.at < since) continue;
+    out.push({ id: `n-agent-${n.id}`, at: n.at, tone: "agent", title: n.title, body: n.body, href: n.href ?? "/agent" });
+  }
   for (const t of s.transactions) {
     if (t.direction !== "IN" || t.occurredAt < since || t.occurredAt > now) continue;
     const item = s.schedule.find((it) => it.id === t.scheduleItemId);

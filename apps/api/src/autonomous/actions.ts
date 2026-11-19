@@ -53,6 +53,10 @@ export type Prepared = {
 };
 export type PrepareResult = { ok: true; value: Prepared } | { ok: false; error: string };
 
+/** Date lisible pour les messages et le journal : « 13 novembre 2026 ». */
+export const frDate = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+const URGENCY = { LOW: "peu urgent", MEDIUM: "urgence moyenne", HIGH: "urgence haute" } as const;
+
 const fail = (error: string): PrepareResult => ({ ok: false, error });
 const ok = (value: Omit<Prepared, "sends" | "mutations"> & Partial<Pick<Prepared, "sends" | "mutations">>): PrepareResult => ({ ok: true, value: { sends: [], mutations: [], ...value } });
 const name = (p: { firstName: string; lastName: string }) => `${p.firstName} ${p.lastName}`.trim();
@@ -81,7 +85,7 @@ export function prepare(action: AutonomousAction, raw: unknown, s: OwnerSnapshot
     case "send_rent_reminder": {
       const c = due(false);
       if ("error" in c) return fail(c.error!);
-      return ok({ summary: `Relance de ${name(c.party)} pour ${formatMoney(c.left)} (échéance du ${c.item.dueDate})`, assetId: c.asset.id, dedupeKey: `reminder:${c.item.id}`, dedupeDays: 3, sends: [send(c.party, input.message)] });
+      return ok({ summary: `Relance de ${name(c.party)} pour ${formatMoney(c.left)} (échéance du ${frDate(c.item.dueDate)})`, assetId: c.asset.id, dedupeKey: `reminder:${c.item.id}`, dedupeDays: 3, sends: [send(c.party, input.message)] });
     }
     case "send_payment_link": {
       const c = due(false);
@@ -91,8 +95,8 @@ export function prepare(action: AutonomousAction, raw: unknown, s: OwnerSnapshot
     case "send_receipt": {
       const c = due(true);
       if ("error" in c) return fail(c.error!);
-      const body = `Bonjour ${c.party.firstName}, votre paiement de ${formatMoney(c.item.received)} pour l'échéance du ${c.item.dueDate} (${c.unit?.label ?? c.asset.name}) est bien reçu. Votre quittance est disponible dans l'application Keyo.`;
-      return ok({ summary: `Quittance envoyée à ${name(c.party)} (${c.item.dueDate})`, assetId: c.asset.id, dedupeKey: `receipt:${c.item.id}`, sends: [send(c.party, body)], mutations: [{ type: "receipt.issue", payload: { scheduleItemId: c.item.id } }] });
+      const body = `Bonjour ${c.party.firstName}, votre paiement de ${formatMoney(c.item.received)} pour l'échéance du ${frDate(c.item.dueDate)} (${c.unit?.label ?? c.asset.name}) est bien reçu. Votre quittance est disponible dans l'application Keyo.`;
+      return ok({ summary: `Quittance envoyée à ${name(c.party)} (${frDate(c.item.dueDate)})`, assetId: c.asset.id, dedupeKey: `receipt:${c.item.id}`, sends: [send(c.party, body)], mutations: [{ type: "receipt.issue", payload: { scheduleItemId: c.item.id } }] });
     }
     case "propose_payment_plan": {
       const c = due(false);
@@ -123,14 +127,14 @@ export function prepare(action: AutonomousAction, raw: unknown, s: OwnerSnapshot
         assetId: unit.assetId,
         dedupeKey: `visit:${unit.id}:${input.phone}`,
         dedupeDays: 7,
-        sends: [{ channel: "WHATSAPP", to: input.phone, toName: input.name, text: `Bonjour ${input.name}, votre visite de ${unit.label} est prévue le ${input.at.slice(0, 10)} à ${input.at.slice(11, 16)}.` }],
+        sends: [{ channel: "WHATSAPP", to: input.phone, toName: input.name, text: `Bonjour ${input.name}, votre visite de ${unit.label} est prévue le ${frDate(input.at)} à ${input.at.slice(11, 16)}.` }],
         mutations: [{ type: "mission.create", payload: { kind: "VISIT", assetId: unit.assetId, unitId: unit.id, dueDate: input.at.slice(0, 10), label: `Visite avec ${input.name}` } }],
       });
     }
     case "triage_incident": {
       const e = s.events.find((x) => x.id === input.eventId);
       if (!e) return fail("Incident introuvable.");
-      return ok({ summary: `Incident qualifié : ${e.title} (${input.category}, urgence ${input.urgency})`, assetId: e.assetId, dedupeKey: `triage:${e.id}`, mutations: [{ type: "event.update", payload: { eventId: e.id, category: input.category, urgency: input.urgency, aiSummary: input.summary } }] });
+      return ok({ summary: `Incident qualifié : ${e.title} (${URGENCY[input.urgency as keyof typeof URGENCY]})`, assetId: e.assetId, dedupeKey: `triage:${e.id}`, mutations: [{ type: "event.update", payload: { eventId: e.id, category: input.category, urgency: input.urgency, aiSummary: input.summary } }] });
     }
     case "request_quotes": {
       const e = s.events.find((x) => x.id === input.eventId);
@@ -156,7 +160,7 @@ export function prepare(action: AutonomousAction, raw: unknown, s: OwnerSnapshot
         assetId: e.assetId,
         spend: q.amount,
         dedupeKey: `approve:${e.id}`,
-        sends: craftsman ? [send(craftsman, `Bonjour, votre devis de ${formatMoney(q.amount)} pour « ${e.title} » est accepté. Intervention le ${q.slot.slice(0, 10)} à ${q.slot.slice(11, 16)}.`)] : [],
+        sends: craftsman ? [send(craftsman, `Bonjour, votre devis de ${formatMoney(q.amount)} pour « ${e.title} » est accepté. Intervention le ${frDate(q.slot)} à ${q.slot.slice(11, 16)}.`)] : [],
         mutations: [{ type: "event.update", payload: { eventId: e.id, status: "SCHEDULED", scheduledAt: q.slot, acceptedQuoteId: q.id } }],
       });
     }
@@ -166,7 +170,7 @@ export function prepare(action: AutonomousAction, raw: unknown, s: OwnerSnapshot
       const g = s.agreements.find((x) => x.unitId === e.unitId && (!x.endDate || x.endDate >= today));
       const occupant = g && s.parties.find((p) => p.id === g.partyId);
       return ok({
-        summary: `Intervention planifiée le ${input.at.slice(0, 10)} pour « ${e.title} »`,
+        summary: `Intervention planifiée le ${frDate(input.at)} pour « ${e.title} »`,
         assetId: e.assetId,
         dedupeKey: `intervention:${e.id}:${input.at}`,
         sends: occupant ? [send(occupant, input.message)] : [],
@@ -179,7 +183,7 @@ export function prepare(action: AutonomousAction, raw: unknown, s: OwnerSnapshot
       return ok({ summary: `${input.documentLabel} demandé à ${name(p)}`, dedupeKey: `doc:${p.id}:${input.documentLabel.toLowerCase()}`, dedupeDays: 7, sends: [send(p, input.message)] });
     }
     case "remind_deadline":
-      return ok({ summary: `Rappel : ${input.title} (${input.dueDate})`, dedupeKey: `deadline:${input.title.toLowerCase()}:${input.dueDate}`, mutations: [{ type: "notification", payload: { title: input.title, body: input.detail } }] });
+      return ok({ summary: `Rappel : ${input.title} (${frDate(input.dueDate)})`, dedupeKey: `deadline:${input.title.toLowerCase()}:${input.dueDate}`, mutations: [{ type: "notification", payload: { title: input.title, body: input.detail } }] });
     case "send_monthly_report":
       return ok({ summary: `Rapport de ${input.month} envoyé`, dedupeKey: `report:${input.month}`, mutations: [{ type: "notification", payload: { title: `Rapport de ${input.month}`, body: input.report } }] });
     case "suggest_reappraisal": {
