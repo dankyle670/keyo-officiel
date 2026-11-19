@@ -206,6 +206,22 @@ Owner (propriétaire)
 - [ ] Multi-devises complet (EUR, CAD, USD) et conversion à l'affichage
 - [ ] Ouverture du marché France (Stripe, quittances conformes)
 
+### Phase 2 bis : Agent autonome (en cours)
+L'agent Keyo agit à la place du propriétaire, dans les limites qu'il fixe. Code : `packages/shared/src/autonomy.ts` (catalogue, niveaux, décision) et `apps/api/src/autonomous/`.
+- [x] Catalogue des actions autonomes et niveaux par action : Jamais / Me demander / Faire et me prévenir / Faire seul, avec un plafond par action
+- [x] Décision par le code, jamais par le modèle (`decideAutonomy`) : interrupteur général, plafond de dépense par devise, heures calmes pour les messages aux tiers
+- [x] Règles fixes : jamais déplacer d'argent, signer, résilier un contrat ni engager une procédure (hors catalogue)
+- [x] Orchestration multi-agents : un Gérant qui délègue à cinq spécialistes (Encaissement, Relocation, Entretien, Conformité, Finances), chacun limité à ses outils
+- [x] Mode sans clé : règles fixes (relances, liens de paiement, quittances, qualification d'incident, rapport) passant par le même contrôle
+- [x] Journal « Ce que Keyo a fait », demandes d'accord, annulation, idempotence (pas de double relance)
+- [x] Déclencheurs : chaque jour, chaque semaine, chaque mois (BullMQ + Redis, ou minuterie sans Redis) et événements (paiement reçu, incident signalé, logement libéré)
+- [x] Connecteurs : interface commune, pilote WhatsApp Business (API Cloud de Meta), pilotes simulés pour les autres canaux
+- [ ] PostgreSQL + Prisma à la place du stockage en mémoire (même interface `AgentStore`)
+- [ ] Connexion téléphone + code SMS (remplace l'en-tête provisoire `x-keyo-owner`)
+- [ ] App : envoi des données au serveur, application des modifications, écrans Autonomie, Connexions, Ce que Keyo a fait, Accords en attente
+- [ ] Connecteurs réels : SMS (fournisseur local), e-mail, agrégateur de paiement (liens et webhooks), agenda, sites d'annonces, signature électronique
+- [ ] Actions suivantes : révision de loyer, état des lieux, restitution du dépôt, déclaration fiscale préparée, rapprochement bancaire en lecture seule
+
 ### Phase 3 : Passeport locataire (mois 5 à 7)
 > **Avant de coder :** rencontrer 2 ou 3 microfinances ou banques à Abidjan pour valider ce qu'elles acceptent comme preuve. Leur réponse définit le format.
 - [ ] Score Keyo (ponctualité, ancienneté, régularité), calculé **uniquement sur les paiements passés par Keyo**

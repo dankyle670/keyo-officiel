@@ -1,6 +1,6 @@
 version: "3.8"
 # Environnement de développement Keyo.
-# Plus tard : postgres, redis, admin (Next.js).
+# Plus tard : postgres, admin (Next.js).
 services:
   mobile:
     build:
@@ -34,3 +34,16 @@ services:
     volumes:
       - ./apps/api/src:/repo/apps/api/src
       - ./packages/shared/src:/repo/packages/shared/src
+    # Déclencheurs des agents autonomes : ajouter REDIS_URL=redis://localhost:6379 dans apps/api/.env.
+
+  # File des agents autonomes (BullMQ). Image légère, données dans un volume nommé.
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+
+volumes:
+  redis-data:

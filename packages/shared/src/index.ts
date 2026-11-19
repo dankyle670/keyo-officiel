@@ -10,3 +10,4 @@ export * from "./appraisal.ts";
 export * from "./owner-passport.ts";
 export * from "./audit.ts";
 export * from "./agent.ts";
+export * from "./autonomy.ts";
