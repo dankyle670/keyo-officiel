@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Alert, Share, View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
+import { Cable, History, SlidersHorizontal } from "lucide-react-native";
 import * as LocalAuthentication from "expo-local-authentication";
 import { conversation } from "@/agent/conversation";
 import { session, useSettings, useUser, type Settings } from "@/data/session";
 import { actions, getOwnerState, useOwnerState } from "@/data/store";
-import { ActionRow, Button, CurrencySelect, InfoRow, Segmented, SettingsGroup, SubScreen, Text, TextField, ToggleRow } from "@/ui";
+import { ActionRow, Button, CurrencySelect, InfoRow, NavRow, Segmented, SettingsGroup, SubScreen, Text, TextField, ToggleRow } from "@/ui";
 
 export type SettingsSection = "compte" | "securite" | "relances" | "encaissement" | "agent" | "preferences" | "notifications" | "donnees";
 
@@ -106,6 +107,11 @@ function Section({ section }: { section: SettingsSection }) {
               ]}
               onChange={(agentConfirm) => set({ agentConfirm })}
             />
+          </SettingsGroup>
+          <SettingsGroup title="En votre absence" footer="Keyo travaille aussi quand vous n'êtes pas là : relances, quittances, incidents, rappels. Vous décidez de ce qu'il fait seul ; tout est consigné et vous pouvez lui en parler dans le chat.">
+            <NavRow icon={History} tint="mintTint" ink="mintDeep" title="Ce que Keyo a fait" value="Journal et accords" onPress={() => router.push("/agent")} />
+            <NavRow icon={SlidersHorizontal} tint="mintTint" ink="mintDeep" title="Autonomie" value="Par action" onPress={() => router.push("/agent/autonomie")} />
+            <NavRow icon={Cable} tint="mintTint" ink="mintDeep" title="Connexions" value="WhatsApp, SMS…" onPress={() => router.push("/agent/connexions")} />
           </SettingsGroup>
           <SettingsGroup>
             <ToggleRow title="Lire les réponses à voix haute" value={settings.agentSpeaks} onChange={(v) => set({ agentSpeaks: v })} />

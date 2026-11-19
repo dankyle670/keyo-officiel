@@ -22,10 +22,12 @@ const STATUS: Record<ActionStatus, { tone: StatusTone; label: string }> = {
 const ICON = { DONE: CircleCheck, PENDING_APPROVAL: Hourglass, DEFERRED: Clock, BLOCKED: CircleSlash, REJECTED: CircleSlash, FAILED: CircleSlash, UNDONE: Undo2 } as const;
 
 /**
- * Agent autonome : ce que Keyo fait à votre place. Les accords en attente d'abord, puis le journal.
+ * L'agent Keyo en votre absence : les accords en attente d'abord, puis le journal. On lui parle
+ * dans le chat ; on règle son autonomie dans Profil > Agent Keyo.
  * Les réglages fins (niveau par action, plafond) sont dans « Autonomie ».
  */
 export default function AutonomousAgent() {
+  // Écran ouvert depuis le chat (lien « Ouvrir ce que Keyo a fait ») ou Profil > Agent Keyo.
   const sync = useSyncStatus();
   const policy = useRemote(autonomousApi.policy);
   const journal = useRemote(autonomousApi.journal);
@@ -74,7 +76,7 @@ export default function AutonomousAgent() {
   const last = runs.data?.[0];
 
   return (
-    <SubScreen title="Agent autonome" subtitle="Ce que Keyo fait à votre place" footer={<Button label={busy ? "L'agent travaille…" : "Lancer l'agent maintenant"} disabled={busy || Boolean(offline)} onPress={runNow} />}>
+    <SubScreen title="Ce que Keyo a fait" subtitle="En votre absence, selon vos réglages" footer={<Button label={busy ? "L'agent travaille…" : "Lancer l'agent maintenant"} disabled={busy || Boolean(offline)} onPress={runNow} />}>
       <View style={{ marginTop: 20, padding: 22, borderRadius: radius.card, backgroundColor: color.night, gap: 8 }}>
         <Bot size={28} strokeWidth={1.8} color={color.mint} />
         <View style={{ flexDirection: "row", gap: 16, flexWrap: "wrap" }}>

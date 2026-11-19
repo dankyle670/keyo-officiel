@@ -6,6 +6,7 @@ import { getSession, getSettings } from "@/data/session";
 import { agentMode, AgentUnavailable, postTurn, type ApiMessage, type ContentBlock } from "./api";
 import { toContentBlock, type Attachment } from "./attachments";
 import { demoAttachmentReply, demoReply } from "./demo";
+import { demoAutonomyReply } from "./demoAutonomy";
 import { describeAction, executeTool, turnContext } from "./tools";
 
 /**
@@ -180,7 +181,8 @@ export const conversation = {
         return;
       }
       const s = getSession();
-      const r = refs.length ? demoAttachmentReply(refs[0]!, text) : demoReply(text, s.status === "signedIn" ? s.user.displayCurrency : "XOF");
+      const auto = refs.length ? null : await demoAutonomyReply(text);
+      const r = auto ?? (refs.length ? demoAttachmentReply(refs[0]!, text) : demoReply(text, s.status === "signedIn" ? s.user.displayCurrency : "XOF"));
       sayAgent(r.text, r.link);
       if (r.proposal) push({ id: id(), kind: "proposal", toolUseId: `demo-${id()}`, name: r.proposal.name, input: r.proposal.input, description: describeAction(r.proposal.name, r.proposal.input), status: "pending" });
     });

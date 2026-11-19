@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Currency } from "./money.ts";
 import { AssetType, DocumentKind, MissionKind, Urgency } from "./domain.ts";
 import { ASSET_PROFILES } from "./modules/catalog.ts";
+import { AUTONOMOUS_ACTION_KEYS, AutonomyLevel } from "./autonomy.ts";
 
 /**
  * Outils de l'agent Keyo. Le serveur (apps/api) les décrit à Claude ; l'app les exécute sur les
@@ -292,6 +293,47 @@ export const AGENT_TOOLS = {
       managerName: z.string().optional(),
       managerPhone: z.string().optional(),
     }),
+  },
+  get_autonomous_activity: {
+    kind: "read",
+    label: "Ce que Keyo a fait",
+    description:
+      "Activité de Keyo en l'absence du propriétaire : actions faites seul (relances, quittances, incidents qualifiés…), demandes en attente de son accord (avec leur identifiant), dernier passage, et réglages d'autonomie (interrupteur, niveau par action, plafond de dépense). À utiliser pour « qu'as-tu fait ? », « qu'est-ce qui attend mon accord ? ».",
+    input: z.object({}),
+  },
+  decide_pending_action: {
+    kind: "write",
+    risk: "high",
+    label: "Décision sur une demande",
+    description: "Accepte (APPROVE) ou refuse (REJECT) une action en attente de l'accord du propriétaire (identifiant donné par get_autonomous_activity). Acceptée, l'action est revérifiée puis exécutée.",
+    input: z.object({ actionId: z.string(), decision: z.enum(["APPROVE", "REJECT"]) }),
+  },
+  undo_autonomous_action: {
+    kind: "write",
+    risk: "low",
+    label: "Annulation d'une action",
+    description: "Annule une action de Keyo tant qu'elle n'a pas produit d'effet hors de l'app (un message déjà envoyé ne peut pas être repris).",
+    input: z.object({ actionId: z.string() }),
+  },
+  set_autonomy: {
+    kind: "write",
+    risk: "high",
+    label: "Réglage de l'autonomie",
+    description:
+      "Change ce que Keyo peut faire seul : enabled (interrupteur général), le niveau d'une action (OFF jamais, ASK me demander, NOTIFY faire et me prévenir, AUTO faire seul ; certaines actions sont plafonnées), ou le plafond de dépense sans accord (spendCap, unité mineure, devise d'affichage).",
+    input: z.object({
+      enabled: z.boolean().optional(),
+      action: z.enum(AUTONOMOUS_ACTION_KEYS as [string, ...string[]]).optional(),
+      level: AutonomyLevel.optional(),
+      spendCap: minor.optional(),
+    }),
+  },
+  run_autonomous_pass: {
+    kind: "write",
+    risk: "low",
+    label: "Passage de l'agent",
+    description: "Lance tout de suite un passage de Keyo en mode autonome (relances, quittances, incidents, conformité), selon les réglages d'autonomie, et renvoie le compte rendu.",
+    input: z.object({}),
   },
 } satisfies Record<string, ToolDef>;
 

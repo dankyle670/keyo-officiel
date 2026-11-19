@@ -1,10 +1,12 @@
-import { AGENT_TOOLS, borrowingCapacity, PASSPORT_LEVEL_LABEL, appraisalKind, appraisalQuestions, appraise, AUDIT_AREA_LABEL, CONFIDENCE_LABEL, formatMoney, formatShare, isAgentTool, kindLabel, money, profileOf, valueAsset, type AgentToolInput, type AgentToolName, type Currency } from "@keyo/shared";
+import { AUTONOMY_LEVEL_LABEL, actionDef, isAutonomousAction, SPECIALIST_LABEL, AGENT_TOOLS, borrowingCapacity, PASSPORT_LEVEL_LABEL, appraisalKind, appraisalQuestions, appraise, AUDIT_AREA_LABEL, CONFIDENCE_LABEL, formatMoney, formatShare, isAgentTool, kindLabel, money, profileOf, valueAsset, type AgentToolInput, type AgentToolName, type Currency } from "@keyo/shared";
 import { currentMonth, monthName, nowIso, today } from "@/data/period";
 import { passportOf, assetHolders, assetSummary, auditReport, familyAssets, familyHolders, formatPermille, isOpenEvent, latestAppraisal, monthSummary, partyName, portfolioValue, yearFinance } from "@/data/selectors";
 import { getSession, getSettings } from "@/data/session";
 import { actions, getOwnerState } from "@/data/store";
 import { agentMode, postOps, type TurnContext } from "./api";
 import { getAttachment } from "./conversation";
+import { autonomousApi } from "@/autonomous/api";
+import { syncNow } from "@/autonomous/sync";
 
 /**
  * Exécution des outils de l'agent sur les données du téléphone. Chaque entrée est validée avec le
@@ -432,6 +434,53 @@ const EXECUTORS: { [N in AgentToolName]: Executor<N> } = {
     const r = actions.assignMission(input);
     return ok(r, `Mission confiée pour le ${input.dueDate}`);
   },
+  async get_autonomous_activity() {
+    await syncNow();
+    const [journal, runs, policy, catalog] = await Promise.all([autonomousApi.journal(), autonomousApi.runs(), autonomousApi.policy(), autonomousApi.catalog()]);
+    const pending = journal.filter((e) => e.status === "PENDING_APPROVAL");
+    const c = currency();
+    const cap = policy.spendCaps.find((x) => x.currency === c);
+    return ok(
+      {
+        enabled: policy.enabled,
+        spendCap: cap ? formatMoney(cap) : "aucun (toute dépense est soumise à accord)",
+        quietHours: policy.quietHours ? `${policy.quietHours.from} h à ${policy.quietHours.to} h` : "désactivées",
+        pending: pending.map((e) => ({ actionId: e.id, agent: SPECIALIST_LABEL[e.specialist], summary: e.summary, reason: e.reason, at: e.createdAt })),
+        recent: journal.filter((e) => e.status !== "PENDING_APPROVAL").slice(0, 15).map((e) => ({ actionId: e.id, agent: SPECIALIST_LABEL[e.specialist], summary: e.summary, status: e.status, reason: e.reason, at: e.createdAt })),
+        lastRun: runs[0] ? { at: runs[0].startedAt, engine: runs[0].engine === "claude" ? "agents" : "règles fixes", summary: runs[0].summary } : null,
+        levels: catalog.map((x) => ({ action: x.key, label: x.label, level: AUTONOMY_LEVEL_LABEL[x.level], max: AUTONOMY_LEVEL_LABEL[x.maxLevel] })),
+      },
+      `${pending.length} demande${pending.length > 1 ? "s" : ""} en attente`,
+    );
+  },
+  async decide_pending_action({ actionId, decision }) {
+    const r = decision === "APPROVE" ? await autonomousApi.approve(actionId) : await autonomousApi.reject(actionId);
+    await syncNow();
+    return ok(r, decision === "APPROVE" ? `Accepté : ${r.summary}` : `Refusé : ${r.summary}`);
+  },
+  async undo_autonomous_action({ actionId }) {
+    const r = await autonomousApi.undo(actionId);
+    return ok(r, `Annulé : ${r.summary}`);
+  },
+  async set_autonomy({ enabled, action, level, spendCap }) {
+    const p = await autonomousApi.policy();
+    const c = currency();
+    const next = {
+      ...p,
+      enabled: enabled ?? p.enabled,
+      levels: action && level ? { ...p.levels, [action]: level } : p.levels,
+      spendCaps: spendCap === undefined ? p.spendCaps : [...p.spendCaps.filter((x) => x.currency !== c), { amount: spendCap, currency: c }],
+    };
+    const saved = await autonomousApi.setPolicy(next);
+    const effective = action && isAutonomousAction(action) ? (await autonomousApi.catalog()).find((x) => x.key === action) : undefined;
+    return ok({ enabled: saved.enabled, action: effective && { label: effective.label, level: AUTONOMY_LEVEL_LABEL[effective.level] } }, "Autonomie mise à jour");
+  },
+  async run_autonomous_pass() {
+    await syncNow();
+    const run = await autonomousApi.run();
+    await syncNow();
+    return ok({ status: run.status, engine: run.engine === "claude" ? "agents" : "règles fixes", summary: run.summary }, run.summary ?? "Passage terminé");
+  },
 };
 
 export async function executeTool(name: string, rawInput: unknown): Promise<ToolOutcome> {
@@ -510,6 +559,21 @@ export function describeAction(name: string, input: Record<string, unknown>): st
       return `Programmer « ${input.label} » à ${a}, tous les ${input.everyMonths} mois, prochain passage le ${input.nextDueOn}.`;
     case "assign_mission":
       return `Confier la mission « ${input.title} » (${a}) pour le ${input.dueDate}.`;
+    case "decide_pending_action":
+      return input.decision === "APPROVE" ? "Accepter cette demande de Keyo : elle sera exécutée." : "Refuser cette demande de Keyo.";
+    case "undo_autonomous_action":
+      return "Annuler cette action de Keyo.";
+    case "set_autonomy": {
+      const parts = [
+        input.enabled === false && "mettre Keyo en pause",
+        input.enabled === true && "laisser Keyo agir",
+        typeof input.action === "string" && isAutonomousAction(input.action) && input.level && `« ${actionDef(input.action).label} » : ${AUTONOMY_LEVEL_LABEL[input.level as keyof typeof AUTONOMY_LEVEL_LABEL]}`,
+        typeof input.spendCap === "number" && `plafond de dépense sans accord : ${n(input.spendCap)}`,
+      ].filter(Boolean);
+      return `Changer l'autonomie de Keyo : ${parts.join(", ")}.`;
+    }
+    case "run_autonomous_pass":
+      return "Lancer maintenant un passage de Keyo selon vos réglages d'autonomie.";
     default:
       return AGENT_TOOLS[name as AgentToolName]?.label ?? name;
   }

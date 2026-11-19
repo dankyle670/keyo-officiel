@@ -2,8 +2,7 @@ import { useMemo } from "react";
 import { Pressable, View } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Bell, ChevronRight, Plus, Search, ShieldCheck, Wallet, Landmark, Workflow } from "lucide-react-native";
-import { useSyncStatus } from "@/autonomous/sync";
+import { Bell, ChevronRight, Plus, Search, ShieldCheck, Wallet, Landmark } from "lucide-react-native";
 import { money } from "@keyo/shared";
 import { color, radius } from "@keyo/tokens";
 import { LockMotif } from "@/brand/Logo";
@@ -24,7 +23,6 @@ export default function OwnerHome() {
   const month = currentMonth();
   const currency = user.displayCurrency;
   const passport = useMemo(() => passportOf(state, user.id, currency, today()), [state, user.id, currency]);
-  const sync = useSyncStatus();
   const summary = useMemo(() => monthSummary(state, month, today(), currency), [state, month, currency]);
   const todos = useMemo(() => todoItems(state, month, today(), currency).slice(0, 2), [state, month, currency]);
   const markers = useMemo(() => buildMarkers(state, state.assets, month, today()), [state, month]);
@@ -122,19 +120,6 @@ export default function OwnerHome() {
               <Landmark size={20} strokeWidth={1.8} color={color.mintDeep} />
               <Text variant="rowTitle" tabular>
                 Passeport {passport.score}
-              </Text>
-              <ChevronRight size={18} strokeWidth={1.8} color={color.inkMuted} />
-            </Pressable>
-            <Pressable
-              onPress={() => router.push("/agent")}
-              accessibilityRole="button"
-              accessibilityLabel={`Agent autonome, ${sync.reachable === false ? "serveur injoignable" : "actif"}`}
-              style={{ height: 44, borderRadius: 999, backgroundColor: color.surfaceRaised, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 14, paddingRight: 10 }}
-            >
-              <Workflow size={20} strokeWidth={1.8} color={sync.reachable === false ? color.inkMuted : color.mintDeep} />
-              <Text variant="rowTitle">Agent</Text>
-              <Text variant="rowSubtitle" tone="inkMuted">
-                {sync.reachable === false ? "hors ligne" : "autonome"}
               </Text>
               <ChevronRight size={18} strokeWidth={1.8} color={color.inkMuted} />
             </Pressable>
