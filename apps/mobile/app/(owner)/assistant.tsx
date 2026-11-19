@@ -1,85 +1,130 @@
-import { useMemo, useRef, useState, type ComponentRef } from "react";
-import { KeyboardAvoidingView, Pressable, ScrollView, TextInput, View } from "react-native";
+import { useEffect, useRef, useState, type ComponentRef } from "react";
+import { ActivityIndicator, KeyboardAvoidingView, Pressable, ScrollView, TextInput, View } from "react-native";
+import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArrowUp, Sparkles } from "lucide-react-native";
+import { ArrowUp, Check, CircleAlert, RotateCcw, ShieldCheck, Sparkles, Volume2 } from "lucide-react-native";
 import { color, fontFamily, radius } from "@keyo/tokens";
-import { answer, FIRST_QUESTION, SUGGESTIONS, type AssistantAnswer } from "@/data/assistant";
-import { getSession } from "@/data/session";
-import { getOwnerState } from "@/data/store";
-import { Amount, TAB_BAR_CLEARANCE, Text } from "@/ui";
+import { conversation, speak, useConversation, type FeedItem } from "@/agent/conversation";
+import { RoundButton, Status, TAB_BAR_CLEARANCE, Text } from "@/ui";
 
-const currency = () => {
-  const s = getSession();
-  return s.status === "signedIn" ? s.user.displayCurrency : "XOF";
-};
+const EXAMPLES = [
+  "Est-ce que tout est en ordre ?",
+  "Fais-moi le rapport du mois",
+  "Qui paie en retard ?",
+  "Demande des devis pour la fuite à Bingerville",
+  "Programme l'entretien de la clim de la villa",
+  "Envoie le gérant visiter le Studio A4",
+];
 
-type Turn = { id: number; question: string; reply: AssistantAnswer };
-
-/** Assistant (07-ProAssistant) : question en langage naturel, réponse chiffrée avec graphique. */
-export default function Assistant() {
+/** Agent Keyo : chat écrit ou dicté, qui consulte et agit sur les biens, avec confirmation. */
+export default function Agent() {
   const insets = useSafeAreaInsets();
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
+  const c = useConversation();
   const [input, setInput] = useState("");
-  const [turns, setTurns] = useState<Turn[]>(() =>
-    getOwnerState().assets.some((a) => a.name.includes("Bingerville")) ? [{ id: 0, question: FIRST_QUESTION, reply: answer(getOwnerState(), FIRST_QUESTION, currency()) }] : [],
-  );
+  const params = useLocalSearchParams<{ prompt?: string; k?: string }>();
+  const handled = useRef<string | undefined>(undefined);
+  const waiting = c.feed.some((f) => f.kind === "proposal" && f.status === "pending");
 
-  const ask = (q: string) => {
-    const question = q.trim();
-    if (!question) return;
-    setTurns((t) => [...t, { id: t.length, question, reply: answer(getOwnerState(), question, currency()) }]);
+  // Demande envoyée depuis un autre écran (Contrôle de gestion, par exemple).
+  useEffect(() => {
+    if (params.prompt && params.k && handled.current !== params.k) {
+      handled.current = params.k;
+      conversation.send(params.prompt);
+    }
+  }, [params.k, params.prompt]);
+
+  useEffect(() => {
+    const t = setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 60);
+    return () => clearTimeout(t);
+  }, [c.feed.length, c.busy]);
+
+  const send = (text: string) => {
+    if (!text.trim() || c.busy || waiting) return;
     setInput("");
-    setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 50);
+    conversation.send(text);
   };
 
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: color.surface }} behavior="padding">
-      <ScrollView ref={scroll} contentContainerStyle={{ paddingTop: insets.top + 20, paddingHorizontal: 24, paddingBottom: 24 }}>
-        <Text variant="screenTitle" accessibilityRole="header">
-          Assistant
-        </Text>
-        {turns.length === 0 && (
-          <Text variant="body" tone="inkMuted" style={{ marginTop: 12 }}>
-            Posez une question sur vos biens, vos loyers ou vos dépenses. Les réponses s'appuient uniquement sur vos données.
-          </Text>
-        )}
-        {turns.map((t) => (
-          <View key={t.id} style={{ marginTop: 24, gap: 14 }}>
-            <View style={{ alignSelf: "flex-end", maxWidth: "85%", backgroundColor: color.night, borderRadius: 22, borderBottomRightRadius: 6, paddingHorizontal: 16, paddingVertical: 12 }}>
-              <Text variant="body" tone="onNight">
-                {t.question}
-              </Text>
+      <ScrollView ref={scroll} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingTop: insets.top + 12, paddingHorizontal: 20, paddingBottom: 24 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <View style={{ flex: 1 }}>
+            <Text variant="screenTitle" accessibilityRole="header">
+              Agent Keyo
+            </Text>
+            <View style={{ marginTop: 4 }}>
+              {c.mode === "claude" ? (
+                <Status tone="paid" label="Connecté à Claude" />
+              ) : c.mode === "demo" ? (
+                <Status tone="late" label={c.offline ? "Serveur injoignable, mode démo" : "Mode démo, sans IA"} />
+              ) : (
+                <Status tone="neutral" label="Prêt" />
+              )}
             </View>
-            <Reply reply={t.reply} />
           </View>
+          <RoundButton icon={ShieldCheck} label="Contrôle de gestion" onPress={() => router.push("/controle")} />
+          {c.feed.length > 0 && <RoundButton icon={RotateCcw} label="Nouvelle conversation" onPress={() => conversation.reset()} />}
+        </View>
+
+        {c.feed.length === 0 && (
+          <View style={{ marginTop: 20, gap: 14 }}>
+            <Text variant="body" tone="inkMuted">
+              Votre gestionnaire, disponible à toute heure. Il consulte vos biens, vos loyers et vos documents, et agit pour vous : dépenses, relances, devis, entretien, missions sur le terrain, rapport du mois, contrôle des pièces et de la fiscalité. Il vous demande toujours avant de modifier quoi que ce soit.
+            </Text>
+            <Text variant="rowSubtitle" tone="inkMuted">
+              Pour parler, touchez le micro du clavier.
+            </Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              {EXAMPLES.map((e) => (
+                <Pressable key={e} onPress={() => send(e)} style={{ minHeight: 40, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, backgroundColor: color.surfaceRaised, borderWidth: 1, borderColor: color.line }}>
+                  <Text variant="rowSubtitle" style={{ fontFamily: fontFamily.semibold }}>
+                    {e}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {c.feed.map((f) => (
+          <Item key={f.id} item={f} busy={c.busy} />
         ))}
+
+        {c.busy && (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 16 }} accessibilityLiveRegion="polite">
+            <ActivityIndicator color={color.mintDeep} />
+            <Text variant="rowSubtitle" tone="inkMuted">
+              L'agent travaille…
+            </Text>
+          </View>
+        )}
       </ScrollView>
 
-      <View style={{ paddingHorizontal: 16, paddingBottom: TAB_BAR_CLEARANCE + insets.bottom - 16, gap: 10 }}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 8 }}>
-          {SUGGESTIONS.map((s) => (
-            <Pressable key={s} onPress={() => ask(s)} style={{ height: 40, paddingHorizontal: 14, borderRadius: 999, backgroundColor: color.surfaceRaised, justifyContent: "center", borderWidth: 1, borderColor: color.line }}>
-              <Text variant="rowSubtitle" style={{ fontFamily: fontFamily.semibold }}>
-                {s}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-        <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: color.surfaceRaised, borderRadius: 999, height: 56, paddingLeft: 20, paddingRight: 6 }}>
+      <View style={{ paddingHorizontal: 16, paddingBottom: TAB_BAR_CLEARANCE + insets.bottom - 16, gap: 8 }}>
+        {waiting && (
+          <Text variant="caption" tone="inkMuted" align="center">
+            Confirmez ou refusez l'action proposée pour continuer.
+          </Text>
+        )}
+        <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: color.surfaceRaised, borderRadius: 999, minHeight: 56, paddingLeft: 20, paddingRight: 6 }}>
           <TextInput
             value={input}
             onChangeText={setInput}
-            onSubmitEditing={() => ask(input)}
-            placeholder="Votre question"
+            onSubmitEditing={() => send(input)}
+            placeholder="Écrivez ou dictez votre demande"
             placeholderTextColor={color.inkMuted}
             returnKeyType="send"
-            style={{ flex: 1, fontFamily: fontFamily.medium, fontSize: 16, color: color.ink }}
+            editable={!waiting}
+            multiline
+            blurOnSubmit
+            style={{ flex: 1, fontFamily: fontFamily.medium, fontSize: 16, color: color.ink, maxHeight: 110, paddingVertical: 14 }}
           />
           <Pressable
-            onPress={() => ask(input)}
-            disabled={!input.trim()}
+            onPress={() => send(input)}
+            disabled={!input.trim() || c.busy || waiting}
             accessibilityLabel="Envoyer"
-            style={{ width: 44, height: 44, borderRadius: 44, backgroundColor: color.mint, alignItems: "center", justifyContent: "center", opacity: input.trim() ? 1 : 0.4 }}
+            style={{ width: 44, height: 44, borderRadius: 44, backgroundColor: color.mint, alignItems: "center", justifyContent: "center", opacity: input.trim() && !c.busy && !waiting ? 1 : 0.4 }}
           >
             <ArrowUp size={22} strokeWidth={1.8} color={color.onMint} />
           </Pressable>
@@ -89,51 +134,102 @@ export default function Assistant() {
   );
 }
 
-function Reply({ reply }: { reply: AssistantAnswer }) {
-  const max = useMemo(() => Math.max(1, ...(reply.series ?? [1])), [reply.series]);
-  return (
-    <View style={{ backgroundColor: color.surfaceRaised, borderRadius: radius.card, padding: 20, gap: 10 }}>
-      <View style={{ flexDirection: "row", gap: 10 }}>
-        <Sparkles size={20} strokeWidth={1.8} color={color.mintDeep} />
-        <Text variant="body" style={{ flex: 1 }}>
-          {reply.lead}
-        </Text>
-      </View>
-      {reply.amount && (
-        <View style={{ flexDirection: "row", alignItems: "baseline", gap: 6 }}>
-          <Amount value={reply.amount.value} variant="amount" />
-          {reply.amount.suffix ? (
-            <Text variant="heading" tone="inkMuted">
-              {reply.amount.suffix}
+const clean = (t: string) => t.replace(/\*\*(.+?)\*\*/g, "$1").replace(/^#+\s*/gm, "");
+
+function Item({ item, busy }: { item: FeedItem; busy: boolean }) {
+  switch (item.kind) {
+    case "user":
+      return (
+        <View style={{ alignSelf: "flex-end", maxWidth: "85%", backgroundColor: color.night, borderRadius: 22, borderBottomRightRadius: 6, paddingHorizontal: 16, paddingVertical: 12, marginTop: 20 }}>
+          <Text variant="body" tone="onNight">
+            {item.text}
+          </Text>
+        </View>
+      );
+    case "agent": {
+      const lines = clean(item.text).split("\n");
+      const sources = lines.filter((l) => /^sources\s*:/i.test(l.trim()));
+      const body = lines.filter((l) => !/^sources\s*:/i.test(l.trim())).join("\n").trim();
+      return (
+        <View style={{ backgroundColor: color.surfaceRaised, borderRadius: radius.card, padding: 18, gap: 10, marginTop: 14 }}>
+          <View style={{ flexDirection: "row", gap: 10 }}>
+            <Sparkles size={20} strokeWidth={1.8} color={color.mintDeep} />
+            <Text variant="body" style={{ flex: 1 }} selectable>
+              {body}
             </Text>
-          ) : null}
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, borderTopWidth: sources.length ? 1 : 0, borderTopColor: color.line, paddingTop: sources.length ? 10 : 0 }}>
+            <Text variant="caption" tone="inkMuted" style={{ flex: 1 }}>
+              {sources.join(" ")}
+            </Text>
+            <Pressable onPress={() => speak(item.text)} hitSlop={10} accessibilityRole="button" accessibilityLabel="Lire la réponse à voix haute">
+              <Volume2 size={20} strokeWidth={1.8} color={color.inkMuted} />
+            </Pressable>
+          </View>
         </View>
-      )}
-      {reply.series && (
-        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 6, height: 90, marginTop: 6 }} accessibilityLabel="Graphique des revenus nets par mois">
-          {reply.series.map((v, i) => {
-            const low = v < max;
-            return (
-              <View key={i} style={{ flex: 1, alignItems: "center", gap: 4 }}>
-                <View style={{ width: "100%", height: Math.max(4, (v / max) * 70), borderRadius: 6, backgroundColor: low ? color.dotLate : color.mint }} />
-                <Text variant="caption" tone="inkMuted" style={{ fontSize: 10, lineHeight: 12 }}>
-                  {"JFMAMJJASOND"[i]}
-                </Text>
-              </View>
-            );
-          })}
+      );
+    }
+    case "activity":
+      return (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10, paddingHorizontal: 6 }}>
+          {item.ok ? <Check size={16} strokeWidth={2} color={color.mintDeep} /> : <CircleAlert size={16} strokeWidth={1.8} color={color.danger} />}
+          <Text variant="caption" tone="inkMuted" style={{ flex: 1 }}>
+            {item.label}
+          </Text>
         </View>
-      )}
-      {reply.note && (
-        <Text variant="rowSubtitle" tone="inkMuted">
-          {reply.note}
-        </Text>
-      )}
-      {reply.sources.length > 0 && (
-        <Text variant="caption" tone="inkMuted" style={{ borderTopWidth: 1, borderTopColor: color.line, paddingTop: 10 }}>
-          Sources : {reply.sources.join(", ")}
-        </Text>
-      )}
-    </View>
+      );
+    case "proposal":
+      return (
+        <View style={{ backgroundColor: color.surfaceRaised, borderRadius: radius.card, padding: 18, gap: 12, marginTop: 14, borderWidth: 2, borderColor: item.status === "pending" ? color.mint : color.line }}>
+          <Text variant="caption" tone="inkMuted">
+            Voici ce que je vais faire
+          </Text>
+          <Text variant="rowTitle">{item.description}</Text>
+          {item.status === "pending" ? (
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <Pill label="Refuser" onPress={() => conversation.decide(item.id, false)} disabled={busy} />
+              <Pill label="Confirmer" strong onPress={() => conversation.decide(item.id, true)} disabled={busy} />
+            </View>
+          ) : (
+            <Status
+              tone={item.status === "done" ? "paid" : item.status === "declined" ? "neutral" : "danger"}
+              label={item.status === "done" ? `Fait${item.result ? ` : ${item.result}` : ""}` : item.status === "declined" ? "Refusé" : `Échec${item.result ? ` : ${item.result}` : ""}`}
+            />
+          )}
+        </View>
+      );
+    case "error":
+      return (
+        <View style={{ flexDirection: "row", gap: 8, marginTop: 14, paddingHorizontal: 6 }}>
+          <CircleAlert size={18} strokeWidth={1.8} color={color.danger} />
+          <Text variant="rowSubtitle" tone="danger" style={{ flex: 1 }}>
+            {item.text}
+          </Text>
+        </View>
+      );
+  }
+}
+
+/** Boutons de la carte de confirmation : plus petits que le bouton principal de l'écran. */
+function Pill({ label, onPress, strong, disabled }: { label: string; onPress: () => void; strong?: boolean; disabled?: boolean }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      style={({ pressed }) => ({
+        flex: 1,
+        height: 48,
+        borderRadius: 999,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: strong ? color.mint : color.surfaceSoft,
+        opacity: disabled ? 0.4 : pressed ? 0.8 : 1,
+      })}
+    >
+      <Text variant="rowTitle" tone={strong ? "onMint" : "ink"}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }

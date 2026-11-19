@@ -12,6 +12,44 @@ export type User = {
   lastName?: string;
   displayCurrency: Currency;
   autoReminders: boolean;
+  /** Absent sur les comptes créés avant les réglages : lire via settingsOf(). */
+  settings?: Partial<Settings>;
+};
+
+/** Réglages de l'application (Profil). */
+export type Settings = {
+  language: "fr" | "en";
+  notifications: { payments: boolean; late: boolean; incidents: boolean; monthlyReport: boolean; compliance: boolean };
+  reminderTone: "COURTEOUS" | "FIRM";
+  reminderChannels: { push: boolean; sms: boolean };
+  /** Moyens d'encaissement proposés aux occupants, toujours via l'agrégateur (pas de solde Keyo). */
+  paymentMethods: { mobileMoney: boolean; card: boolean; bankTransfer: boolean };
+  /** ALWAYS : l'agent demande avant toute modification ; RISKY : seulement argent, occupants, messages. */
+  agentConfirm: "ALWAYS" | "RISKY";
+  agentSpeaks: boolean;
+  biometricLock: boolean;
+};
+
+export const DEFAULT_SETTINGS: Settings = {
+  language: "fr",
+  notifications: { payments: true, late: true, incidents: true, monthlyReport: true, compliance: true },
+  reminderTone: "COURTEOUS",
+  reminderChannels: { push: true, sms: true },
+  paymentMethods: { mobileMoney: true, card: true, bankTransfer: false },
+  agentConfirm: "ALWAYS",
+  agentSpeaks: false,
+  biometricLock: false,
+};
+
+export const settingsOf = (u: User | undefined): Settings => {
+  const s = u?.settings ?? {};
+  return {
+    ...DEFAULT_SETTINGS,
+    ...s,
+    notifications: { ...DEFAULT_SETTINGS.notifications, ...s.notifications },
+    reminderChannels: { ...DEFAULT_SETTINGS.reminderChannels, ...s.reminderChannels },
+    paymentMethods: { ...DEFAULT_SETTINGS.paymentMethods, ...s.paymentMethods },
+  };
 };
 
 type SessionState =
@@ -62,6 +100,8 @@ export function useUser(): User {
 }
 
 export const getSession = () => state;
+export const useSettings = () => settingsOf(useUser());
+export const getSettings = () => settingsOf(state.status === "signedIn" ? state.user : undefined);
 
 /** Code de démonstration, en attendant l'envoi réel des SMS par l'API. */
 export const DEMO_OTP = "123456";
@@ -90,6 +130,11 @@ export const session = {
   update(patch: Partial<User>) {
     if (state.status !== "signedIn") return;
     set({ status: "signedIn", user: { ...state.user, ...patch } });
+  },
+
+  updateSettings(patch: Partial<Settings>) {
+    if (state.status !== "signedIn") return;
+    set({ status: "signedIn", user: { ...state.user, settings: { ...settingsOf(state.user), ...patch } } });
   },
 
   async signOut() {

@@ -7,6 +7,8 @@ import {
   type AssetEvent,
   type AssetUnit,
   type Document,
+  type MaintenancePlan,
+  type Mission,
   type Party,
   type ScheduleItem,
   type Transaction,
@@ -72,6 +74,7 @@ export function createDemoState(ownerId: string, now: string): OwnerState {
     party("p-yao", "Yao", "T.", "+2250700000006"),
     party("p-koffi", "Koffi", "A.", "+2250700000007"),
     party("p-aminata", "Aminata", "S.", "+2250700000008"),
+    { id: "p-gerant", role: "FIELD_MANAGER", firstName: "Serge", lastName: "K.", phone: "+2250700000009" },
   ];
 
   const lease = (id: string, assetId: string, unitId: string, partyId: string, startDate: string, rent: number, dueDay: number): Agreement => ({
@@ -217,11 +220,50 @@ export function createDemoState(ownerId: string, now: string): OwnerState {
       url: "",
       createdAt: atHour(s.dueDate, 10),
     }));
+  // Pièces volontairement incomplètes : le contrôle de gestion a de quoi travailler.
+  const name = (g: Agreement) => parties.find((p) => p.id === g.partyId)!;
+  const leaseDoc = (g: Agreement, kind: Document["kind"], label: string): Document => ({
+    id: `d-${kind.toLowerCase()}-${g.id}`,
+    assetId: g.assetId,
+    agreementId: g.id,
+    kind,
+    label: `${label} ${name(g).firstName} ${name(g).lastName}`,
+    url: "",
+    createdAt: atHour(g.startDate, 10),
+  });
+  const assetDoc = (assetId: string, kind: Document["kind"], label: string): Document => ({ id: `d-${kind.toLowerCase()}-${assetId}`, assetId, kind, label, url: "", createdAt: "2025-01-10T10:00:00.000Z" });
   const documents: Document[] = [
-    { id: "d-bail-fatou", assetId: "a-bingerville", kind: "LEASE", label: "Bail de Fatou D.", url: "", createdAt: "2025-09-28T10:00:00.000Z" },
-    { id: "d-titre-bingerville", assetId: "a-bingerville", kind: "TITLE_DEED", label: "Titre foncier", url: "", createdAt: "2025-01-10T10:00:00.000Z" },
-    { id: "d-acd-cocody", assetId: "a-cocody", kind: "TITLE_DEED", label: "ACD Résidence Cocody", url: "", createdAt: "2025-01-10T10:00:00.000Z" },
+    ...agreements.filter((g) => g.id !== "g-mariam").map((g) => leaseDoc(g, "LEASE", "Bail de")),
+    ...agreements.filter((g) => !["g-mariam", "g-aminata"].includes(g.id)).map((g) => leaseDoc(g, "INVENTORY", "État des lieux d'entrée,")),
+    ...agreements.filter((g) => !["g-mariam", "g-koffi"].includes(g.id)).map((g) => leaseDoc(g, "REGISTRATION", "Enregistrement du bail,")),
+    assetDoc("a-bingerville", "TITLE_DEED", "Titre foncier"),
+    assetDoc("a-cocody", "TITLE_DEED", "ACD Résidence Cocody"),
+    assetDoc("a-angre", "TITLE_DEED", "Titre foncier Angré"),
+    assetDoc("a-treichville", "TITLE_DEED", "ACD Treichville"),
+    assetDoc("a-marcory", "TITLE_DEED", "Acte notarié Marcory"),
+    assetDoc("a-plateau", "TITLE_DEED", "ACD Plateau"),
+    ...["a-cocody", "a-angre", "a-bingerville", "a-plateau"].map((id) => assetDoc(id, "INSURANCE", "Attestation d'assurance")),
     ...receipts,
+  ];
+
+  const maintenance: MaintenancePlan[] = [
+    { id: "mp-clim-bingerville", assetId: "a-bingerville", label: "Entretien de la climatisation", everyMonths: 6, lastDoneOn: addDays(today, -175), nextDueOn: addDays(today, 5) },
+    { id: "mp-fosse-angre", assetId: "a-angre", label: "Vidange de la fosse septique", everyMonths: 24, lastDoneOn: addDays(today, -740), nextDueOn: addDays(today, -10) },
+    { id: "mp-peinture-cocody", assetId: "a-cocody", label: "Peinture des parties communes", everyMonths: 60, nextDueOn: addDays(today, 200) },
+  ];
+  const missions: Mission[] = [
+    { id: "mi-visite-cocody", assetId: "a-cocody", partyId: "p-gerant", kind: "VISIT", title: "Visite du Studio A4 avant remise en location", dueDate: addDays(today, 3), status: "PLANNED", photos: [] },
+    {
+      id: "mi-controle-angre",
+      assetId: "a-angre",
+      partyId: "p-gerant",
+      kind: "INSPECTION",
+      title: "Contrôle trimestriel du duplex",
+      dueDate: addDays(today, -20),
+      status: "DONE",
+      report: "Bon état général. Joint de la douche à refaire, signalé à l'occupant.",
+      photos: [],
+    },
   ];
 
   const messages: Message[] = [
@@ -229,9 +271,9 @@ export function createDemoState(ownerId: string, now: string): OwnerState {
     { id: "m2", partyId: "p-fatou", from: "OWNER", text: "Merci Fatou. Je regarde les devis et je vous confirme le passage du plombier.", at: shiftHours(now, -1.5) },
   ];
 
-  return { assets, units, parties, agreements, schedule, transactions, events, documents, messages, notificationsReadAt: shiftHours(now, -24) };
+  return { assets, units, parties, agreements, schedule, transactions, events, documents, messages, maintenance, missions, notificationsReadAt: shiftHours(now, -24) };
 }
 
 export function createEmptyState(): OwnerState {
-  return { assets: [], units: [], parties: [], agreements: [], schedule: [], transactions: [], events: [], documents: [], messages: [], notificationsReadAt: new Date(0).toISOString() };
+  return { assets: [], units: [], parties: [], agreements: [], schedule: [], transactions: [], events: [], documents: [], messages: [], maintenance: [], missions: [], notificationsReadAt: new Date(0).toISOString() };
 }

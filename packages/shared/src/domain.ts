@@ -139,12 +139,61 @@ export const AssetEvent = z.object({
 });
 export type AssetEvent = z.infer<typeof AssetEvent>;
 
+export const DocumentKind = z.enum([
+  "LEASE",
+  "TITLE_DEED",
+  "RECEIPT",
+  "INVOICE",
+  "INVENTORY",
+  "PHOTO",
+  "REPORT",
+  /** Assurance du bien (propriétaire non occupant, multirisque). */
+  "INSURANCE",
+  /** Déclaration ou avis fiscal (revenus fonciers, impôt foncier). */
+  "TAX_FILING",
+  /** Preuve d'enregistrement d'un contrat auprès de l'administration fiscale. */
+  "REGISTRATION",
+]);
+export type DocumentKind = z.infer<typeof DocumentKind>;
+
 export const Document = z.object({
   id: Id,
   assetId: Id,
-  kind: z.enum(["LEASE", "TITLE_DEED", "RECEIPT", "INVOICE", "INVENTORY", "PHOTO", "REPORT"]),
+  kind: DocumentKind,
+  /** Contrat auquel la pièce se rattache (bail, état des lieux), si elle en dépend. */
+  agreementId: Id.optional(),
+  /** Année fiscale couverte (déclarations, avis d'imposition). */
+  year: z.number().int().optional(),
   label: z.string(),
   url: z.string(),
   createdAt: IsoDateTime,
 });
 export type Document = z.infer<typeof Document>;
+
+/** Entretien préventif récurrent d'un actif (climatisation, fosse, peinture, vidange…). */
+export const MaintenancePlan = z.object({
+  id: Id,
+  assetId: Id,
+  label: z.string().min(1),
+  everyMonths: z.number().int().min(1).max(120),
+  lastDoneOn: IsoDate.optional(),
+  nextDueOn: IsoDate,
+});
+export type MaintenancePlan = z.infer<typeof MaintenancePlan>;
+
+/** Mission confiée à un intervenant terrain (gérant, opérateur) : visite, contrôle, remise de clés. */
+export const MissionKind = z.enum(["VISIT", "INSPECTION", "KEY_HANDOVER", "COLLECTION", "OTHER"]);
+export type MissionKind = z.infer<typeof MissionKind>;
+export const Mission = z.object({
+  id: Id,
+  assetId: Id,
+  partyId: Id,
+  kind: MissionKind,
+  title: z.string().min(1),
+  dueDate: IsoDate,
+  status: z.enum(["PLANNED", "DONE", "CANCELLED"]),
+  /** Compte rendu de l'intervenant, avec photos (Phase 2). */
+  report: z.string().optional(),
+  photos: z.array(z.string()),
+});
+export type Mission = z.infer<typeof Mission>;

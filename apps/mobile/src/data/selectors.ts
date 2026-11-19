@@ -1,3 +1,4 @@
+import { runAudit } from "@keyo/shared";
 import { daysBetween, formatMoney, sumMoney, type Asset, type AssetEvent, type Currency, type Money, type StatusTone } from "@keyo/shared";
 import type { OwnerState } from "./store";
 
@@ -234,4 +235,9 @@ export function search(s: OwnerState, query: string): SearchHit[] {
     hits.push({ id: p.id, kind: "party", title: `${p.firstName} ${p.lastName}`, subtitle: asset ? `Locataire, ${asset.name}` : "Locataire", href: g ? `/bail/${g.id}` : "/" });
   }
   return hits;
+}
+
+/** Contrôle de gestion (l'« ops » de Keyo), calculé sur les données du téléphone. */
+export function auditReport(s: OwnerState, on: string) {
+  return runAudit({ ...s, today: on });
 }

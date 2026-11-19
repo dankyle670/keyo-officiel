@@ -2,14 +2,14 @@ import { useMemo } from "react";
 import { Pressable, View } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Bell, Plus, Search, Wallet } from "lucide-react-native";
+import { Bell, ChevronRight, Plus, Search, ShieldCheck, Wallet } from "lucide-react-native";
 import { money } from "@keyo/shared";
 import { color, radius } from "@keyo/tokens";
 import { LockMotif } from "@/brand/Logo";
 import { eventIcon } from "@/data/icons";
 import { buildMarkers } from "@/data/markers";
 import { currentMonth, monthName, nowIso, today } from "@/data/period";
-import { initialsOf, monthSummary, notificationFeed, todoItems } from "@/data/selectors";
+import { auditReport, initialsOf, monthSummary, notificationFeed, todoItems } from "@/data/selectors";
 import { useUser } from "@/data/session";
 import { actions, useOwnerState } from "@/data/store";
 import { AssetsMap } from "@/map/AssetsMap";
@@ -26,6 +26,7 @@ export default function OwnerHome() {
   const todos = useMemo(() => todoItems(state, month, today(), currency).slice(0, 2), [state, month, currency]);
   const markers = useMemo(() => buildMarkers(state, state.assets, month, today()), [state, month]);
   const unread = useMemo(() => notificationFeed(state, nowIso(), user.autoReminders).filter((n) => n.at > state.notificationsReadAt).length, [state, user.autoReminders]);
+  const audit = useMemo(() => auditReport(state, today()), [state]);
   const ratio = summary.expected.amount > 0 ? summary.received.amount / summary.expected.amount : 0;
   const hour = new Date().getHours();
   const greeting = hour >= 18 || hour < 5 ? "Bonsoir" : "Bonjour";
@@ -90,6 +91,25 @@ export default function OwnerHome() {
             </Text>
           </View>
         </Pressable>
+
+        {/* Contrôle de gestion : ce qu'une agence vérifierait */}
+        {!empty && (
+          <Pressable
+            onPress={() => router.push("/controle")}
+            accessibilityRole="button"
+            accessibilityLabel={`Contrôle de gestion, score ${audit.score} sur 100`}
+            style={{ alignSelf: "flex-start", height: 44, borderRadius: 999, backgroundColor: color.surfaceRaised, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 14, paddingRight: 10 }}
+          >
+            <ShieldCheck size={20} strokeWidth={1.8} color={audit.counts.HIGH ? color.danger : audit.findings.length ? color.amber : color.mintDeep} />
+            <Text variant="rowTitle" tabular>
+              Contrôle {audit.score}/100
+            </Text>
+            <Text variant="rowSubtitle" tone="inkMuted">
+              {audit.findings.length === 0 ? "tout est en ordre" : `${audit.findings.length} point${audit.findings.length > 1 ? "s" : ""}`}
+            </Text>
+            <ChevronRight size={18} strokeWidth={1.8} color={color.inkMuted} />
+          </Pressable>
+        )}
       </View>
 
       {empty ? (

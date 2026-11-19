@@ -27,4 +27,4 @@ export async function remove(key: string) {
   await AsyncStorage.removeItem(key).catch(() => {});
 }
 
-export const KEYS = { session: "keyo.session.v1", owner: "keyo.owner.v1" } as const;
+export const KEYS = { session: "keyo.session.v1", owner: "keyo.owner.v1", agent: "keyo.agent.v1" } as const;

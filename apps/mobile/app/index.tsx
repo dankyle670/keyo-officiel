@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Animated, Easing, View } from "react-native";
 import { router, type Href } from "expo-router";
+import * as LocalAuthentication from "expo-local-authentication";
 import { StatusBar } from "expo-status-bar";
 import Svg, { Circle, Path, Rect } from "react-native-svg";
 import { color } from "@keyo/tokens";
 import { DkSymbol } from "@/brand/Logo";
-import { getSession, useSession } from "@/data/session";
-import { Text } from "@/ui";
+import { getSession, getSettings, useSession } from "@/data/session";
+import { Button, Text } from "@/ui";
 
 const MARK = 112;
 const WORD = "keyo";
@@ -23,6 +24,7 @@ const native = { useNativeDriver: true } as const;
 export default function Splash() {
   const s = useSession();
   const [introDone, setIntroDone] = useState(false);
+  const [locked, setLocked] = useState(false);
   const leaving = useRef(false);
 
   const markScale = useRef(new Animated.Value(0.92)).current;
@@ -79,10 +81,25 @@ export default function Splash() {
   }, []);
 
   // Une fois l'intro jouée et la session chargée : fondu de sortie, puis ouverture de l'app.
-  useEffect(() => {
-    if (!introDone || s.status === "loading" || leaving.current) return;
+  const leave = () => {
     leaving.current = true;
     Animated.timing(exit, { toValue: 1, duration: 260, easing: Easing.in(Easing.quad), ...native }).start(() => router.replace(destination()));
+  };
+
+  // Verrouillage Face ID (réglage du Profil) : demandé avant d'ouvrir un compte connecté.
+  const unlock = async () => {
+    const r = await LocalAuthentication.authenticateAsync({ promptMessage: "Déverrouiller Keyo", cancelLabel: "Annuler" }).catch(() => ({ success: false }));
+    setLocked(!r.success);
+    if (r.success) leave();
+  };
+
+  useEffect(() => {
+    if (!introDone || s.status === "loading" || leaving.current) return;
+    if (s.status === "signedIn" && getSettings().biometricLock) {
+      unlock();
+      return;
+    }
+    leave();
   }, [introDone, s.status]);
 
   const contentOpacity = exit.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
@@ -142,6 +159,12 @@ export default function Splash() {
             </Text>
           </Animated.View>
         </View>
+
+        {locked && (
+          <View style={{ position: "absolute", left: 24, right: 24, bottom: 110 }}>
+            <Button label="Déverrouiller" onPress={unlock} />
+          </View>
+        )}
 
         {/* Signature DK Group : symbole seul, petit et discret. */}
         <Animated.View style={{ position: "absolute", left: 0, right: 0, bottom: 44, alignItems: "center", opacity: signature }}>

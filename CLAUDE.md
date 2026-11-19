@@ -63,7 +63,17 @@ pnpm test             # tests (packages/shared : node --test)
 pnpm tokens           # régénère packages/tokens/src/generated.ts depuis docs/design/tokens.json
 pnpm mobile           # lance Metro en mode Expo Go ; scanner le QR code avec l'iPhone
 docker-compose up mobile   # même chose dans un conteneur (KEYO_LAN_IP=IP Wi-Fi de la machine)
+docker-compose up api      # API (port 3000) ; clé Claude dans apps/api/.env (copie de .env.example)
+pnpm --filter @keyo/api dev   # API hors conteneur
 ```
+
+## Agent Keyo
+
+- Remplace l'agence de gestion : l'agent consulte et agit depuis le chat (écrit ou dicté). Outils définis une seule fois dans `packages/shared/src/agent.ts` (schémas Zod), décrits à Claude par `apps/api`, exécutés sur le téléphone par `apps/mobile/src/agent/tools.ts`.
+- La clé Claude ne quitte jamais `apps/api`. Sans clé, `/agent/status` renvoie `demo` et l'app utilise `src/agent/demo.ts`.
+- Toute modification passe par une carte de confirmation (réglage `agentConfirm` dans le Profil).
+- Contrôle de gestion (« ops ») : `runAudit` dans `packages/shared/src/audit.ts` est la source de vérité (déterministe, testé) ; le sous-agent `/agent/ops` ne fait que prioriser, sans inventer de point.
+- Repères fiscaux et juridiques : toujours indicatifs, renvoyer vers un conseiller.
 
 - Carte 3D Mapbox : nécessite `EXPO_PUBLIC_MAPBOX_TOKEN` (voir `apps/mobile/.env.example`) et un development build (`eas build --profile development --platform ios`). Sous Expo Go ou sans jeton, `src/map/AssetsMap.tsx` affiche l'illustration isométrique de secours.
 - Mobile : les écrans ne lisent les données que via `src/data/selectors.ts` et `src/data/store.ts` (données fictives pour l'instant, à remplacer par le client API).

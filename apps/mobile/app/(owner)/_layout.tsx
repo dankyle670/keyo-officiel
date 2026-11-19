@@ -13,7 +13,7 @@ export default function OwnerLayout() {
       <Tabs.Screen name="biens" options={{ title: "Biens" }} />
       <Tabs.Screen name="loyers" options={{ title: "Loyers" }} />
       <Tabs.Screen name="incidents" options={{ title: "Incidents" }} />
-      <Tabs.Screen name="assistant" options={{ title: "Assistant" }} />
+      <Tabs.Screen name="assistant" options={{ title: "Agent" }} />
     </Tabs>
   );
 }

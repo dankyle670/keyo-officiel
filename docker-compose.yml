@@ -1,6 +1,6 @@
 version: "3.8"
 # Environnement de développement Keyo.
-# Plus tard : api (NestJS), postgres, redis, admin (Next.js).
+# Plus tard : postgres, redis, admin (Next.js).
 services:
   mobile:
     build:
@@ -22,3 +22,15 @@ services:
       - ${HOME}/.expo:/root/.expo
     tty: true
     stdin_open: true
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    # Réseau de l'hôte : l'iPhone joint l'API sur l'IP Wi-Fi de la machine, port 3000.
+    network_mode: host
+    # Clé Claude et réglages : apps/api/.env (copie de .env.example, jamais commité).
+    env_file: apps/api/.env
+    volumes:
+      - ./apps/api/src:/repo/apps/api/src
+      - ./packages/shared/src:/repo/packages/shared/src

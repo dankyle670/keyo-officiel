@@ -10,6 +10,7 @@ WORKDIR /repo
 # Manifestes d'abord, pour profiter du cache Docker tant que les dépendances ne changent pas.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc turbo.json tsconfig.base.json ./
 COPY apps/mobile/package.json apps/mobile/
+COPY apps/api/package.json apps/api/
 COPY packages/shared/package.json packages/shared/
 COPY packages/tokens/package.json packages/tokens/
 # CI=1 uniquement ici : au lancement, il couperait le rechargement à chaud.

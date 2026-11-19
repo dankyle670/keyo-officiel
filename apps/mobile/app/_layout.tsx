@@ -15,11 +15,13 @@ import {
 import { color } from "@keyo/tokens";
 import { session, useAccess } from "@/data/session";
 import { actions } from "@/data/store";
+import { conversation } from "@/agent/conversation";
 
 SplashScreen.preventAutoHideAsync();
 // Session et données locales chargées dès le démarrage, en parallèle des polices.
 session.hydrate();
 actions.hydrate();
+conversation.hydrate();
 
 export default function RootLayout() {
   const access = useAccess();
@@ -62,6 +64,9 @@ export default function RootLayout() {
             <Stack.Screen name="notifications" />
             <Stack.Screen name="recherche" />
             <Stack.Screen name="profil" />
+            <Stack.Screen name="controle" />
+            <Stack.Screen name="aide" />
+            <Stack.Screen name="mentions" />
           </Stack.Protected>
           <Stack.Protected guard={access === "tenant"}>
             <Stack.Screen name="locataire" />

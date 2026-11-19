@@ -18,6 +18,7 @@ const config: ExpoConfig = {
   plugins: [
     "expo-router",
     "expo-font",
+    ["expo-local-authentication", { faceIDPermission: "Keyo utilise Face ID pour protéger l'accès à vos biens." }],
     ["expo-splash-screen", { backgroundColor: "#0B1B33", image: "./assets/keyo-mark.png", imageWidth: 112 }],
     // Carte 3D : nécessite un development build (EAS), pas Expo Go.
     ["@rnmapbox/maps", { RNMapboxMapsVersion: "11.16.0" }],

@@ -7,6 +7,9 @@ import {
   type AssetEvent,
   type AssetUnit,
   type Document,
+  type MaintenancePlan,
+  type Mission,
+  type MissionKind,
   type Money,
   type Party,
   type ScheduleItem,
@@ -14,7 +17,23 @@ import {
 } from "@keyo/shared";
 import { createDemoState, createEmptyState } from "./mock";
 import { KEYS, load, remove, save } from "./persist";
-import { currentMonth, nowIso, today } from "./period";
+import { addDays, currentMonth, nowIso, today } from "./period";
+
+/** Annuaire d'artisans fictif, en attendant le vrai réseau de prestataires notés. */
+const ARTISANS = [
+  { name: "Konan Services", rating: 4.8, factor: 1 },
+  { name: "Atelier Bamba", rating: 4.5, factor: 0.85 },
+  { name: "Abidjan Pro Dépannage", rating: 4.2, factor: 1.2 },
+];
+const QUOTE_BASE: Record<string, number> = { PLUMBING: 35_000, ELECTRICITY: 40_000, AIR_CONDITIONING: 45_000, PAINTING: 150_000, LOCKSMITH: 25_000, SEPTIC: 60_000, OTHER: 40_000 };
+const CATEGORY_TRADE: Record<string, string> = {
+  PLUMBING: "plombier",
+  ELECTRICITY: "électricien",
+  AIR_CONDITIONING: "frigoriste",
+  PAINTING: "peintre",
+  LOCKSMITH: "serrurier",
+  SEPTIC: "vidange",
+};
 
 export type Message = { id: string; partyId: string; from: "OWNER" | "PARTY"; text: string; at: string };
 
@@ -28,6 +47,8 @@ export type OwnerState = {
   events: AssetEvent[];
   documents: Document[];
   messages: Message[];
+  maintenance: MaintenancePlan[];
+  missions: Mission[];
   notificationsReadAt: string;
 };
 
@@ -114,6 +135,8 @@ export const actions = {
         transactions: s.transactions.filter((t) => t.assetId !== assetId),
         events: s.events.filter((e) => e.assetId !== assetId),
         documents: s.documents.filter((d) => d.assetId !== assetId),
+        maintenance: s.maintenance.filter((m) => m.assetId !== assetId),
+        missions: s.missions.filter((m) => m.assetId !== assetId),
       };
     });
   },
@@ -147,6 +170,7 @@ export const actions = {
       id: newId("d"),
       assetId: input.assetId,
       kind: "LEASE",
+      agreementId,
       label: `Bail de ${input.tenant.firstName} ${input.tenant.lastName}`.trim(),
       url: "",
       createdAt: nowIso(),
@@ -215,6 +239,74 @@ export const actions = {
 
   sendMessage(partyId: string, text: string) {
     setState((s) => ({ ...s, messages: [...s.messages, { id: newId("m"), partyId, from: "OWNER", text, at: nowIso() }] }));
+  },
+
+  /**
+   * Ouvre (ou complète) une demande d'intervention et sollicite trois artisans de l'annuaire.
+   * Données fictives : côté API, les artisans répondent depuis leur propre accès.
+   */
+  requestQuotes(input: { assetId: string; eventId?: string; title: string; description: string; category: string; urgency: "LOW" | "MEDIUM" | "HIGH" }): string {
+    const eventId = input.eventId ?? newId("e");
+    const base = QUOTE_BASE[input.category] ?? 40_000;
+    const currency = state.assets.find((a) => a.id === input.assetId)?.currency ?? "XOF";
+    const scale = currency === "XOF" ? 1 : 0.15; // ordre de grandeur en centimes pour l'euro
+    const quotes = ARTISANS.map((a, i) => ({
+      id: newId("q"),
+      provider: `${a.name}, ${CATEGORY_TRADE[input.category] ?? "artisan"}`,
+      rating: a.rating,
+      slot: `${addDays(today(), i + 1)}T${["09", "14", "10"][i]}:00:00.000Z`,
+      amount: { amount: Math.round((base * a.factor * scale) / 500) * 500, currency },
+    }));
+    setState((s) => {
+      const existing = s.events.find((e) => e.id === eventId);
+      if (existing) return { ...s, events: s.events.map((e) => (e.id === eventId ? { ...e, status: "QUOTES_PENDING", quotes } : e)) };
+      const event: AssetEvent = {
+        id: eventId,
+        assetId: input.assetId,
+        kind: "INCIDENT",
+        category: input.category,
+        title: input.title,
+        description: input.description,
+        urgency: input.urgency,
+        status: "QUOTES_PENDING",
+        reportedAt: nowIso(),
+        photos: [],
+        quotes,
+      };
+      return { ...s, events: [...s.events, event] };
+    });
+    return eventId;
+  },
+
+  addMaintenance(input: Omit<MaintenancePlan, "id">): string {
+    const id = newId("mp");
+    setState((s) => ({ ...s, maintenance: [...s.maintenance, { ...input, id }] }));
+    return id;
+  },
+
+  /** Entretien fait : la prochaine échéance est recalculée. */
+  completeMaintenance(id: string) {
+    setState((s) => ({
+      ...s,
+      maintenance: s.maintenance.map((m) => (m.id === id ? { ...m, lastDoneOn: today(), nextDueOn: `${addMonths(today().slice(0, 7), m.everyMonths)}-${today().slice(8, 10)}` } : m)),
+    }));
+  },
+
+  /** Confie une mission à un gérant terrain ; le gérant est créé s'il n'existe pas encore. */
+  assignMission(input: { assetId: string; kind: MissionKind; title: string; dueDate: string; managerPartyId?: string; managerName?: string; managerPhone?: string }): { missionId: string; partyId: string } {
+    let partyId = input.managerPartyId ?? state.parties.find((p) => p.role === "FIELD_MANAGER")?.id;
+    const newParty: Party | undefined =
+      !partyId || !state.parties.some((p) => p.id === partyId)
+        ? { id: (partyId = newId("p")), role: "FIELD_MANAGER", firstName: input.managerName?.split(" ")[0] ?? "Gérant", lastName: input.managerName?.split(" ").slice(1).join(" ") ?? "", phone: input.managerPhone ?? "" }
+        : undefined;
+    const missionId = newId("mi");
+    const mission: Mission = { id: missionId, assetId: input.assetId, partyId: partyId!, kind: input.kind, title: input.title, dueDate: input.dueDate, status: "PLANNED", photos: [] };
+    setState((s) => ({ ...s, parties: newParty ? [...s.parties, newParty] : s.parties, missions: [...s.missions, mission] }));
+    return { missionId, partyId: partyId! };
+  },
+
+  completeMission(id: string, report: string) {
+    setState((s) => ({ ...s, missions: s.missions.map((m) => (m.id === id ? { ...m, status: "DONE", report } : m)) }));
   },
 
   markNotificationsRead() {
