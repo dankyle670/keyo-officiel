@@ -70,6 +70,13 @@ export const AGENT_TOOLS = {
       "Évaluation indicative d'un bien (assetId) ou de tous : valeur globale et par unité, méthode (revenu capitalisé au rendement de référence, prix d'achat), fourchette, fiabilité, documents disponibles et ce qui manque. Pour affiner, appuyez-vous sur les documents joints (expertise, titre, photos) et expliquez votre raisonnement ; ne présentez jamais une valeur comme certaine.",
     input: z.object({ assetId: z.string().optional() }),
   },
+  get_appraisal_questions: {
+    kind: "read",
+    label: "Questions d'expertise",
+    description:
+      "Questions qu'un expert pose pour évaluer un bien (maisons, appartements et plantations uniquement), avec les réponses déjà connues (prefill) et les choix possibles. Menez l'entretien dans le chat comme un expert : une ou deux questions à la fois, proposez de confirmer les réponses connues, puis appelez submit_appraisal avec les codes des réponses.",
+    input: z.object({ assetId: z.string() }),
+  },
   get_patrimony: {
     kind: "read",
     label: "Patrimoine familial",
@@ -178,6 +185,18 @@ export const AGENT_TOOLS = {
       assetId: z.string(),
       value: minor,
       unitValues: z.array(z.object({ unitId: z.string(), value: minor })).optional(),
+    }),
+  },
+  submit_appraisal: {
+    kind: "write",
+    risk: "low",
+    label: "Expertise d'un bien",
+    description:
+      "Calcule l'estimation d'expert à partir des réponses de l'entretien (codes des options, nombres pour les surfaces ; null si le propriétaire passe) et l'enregistre. apply=true la retient comme valeur du bien. Présentez ensuite la valeur, la fourchette et les facteurs renvoyés, sans en inventer.",
+    input: z.object({
+      assetId: z.string(),
+      answers: z.record(z.string(), z.union([z.string(), z.number(), z.array(z.string()), z.null()])),
+      apply: z.boolean().default(false),
     }),
   },
   invite_family_member: {

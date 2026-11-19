@@ -75,7 +75,7 @@ pnpm --filter @keyo/api dev   # API hors conteneur
 - Contrôle de gestion (« ops ») : `runAudit` dans `packages/shared/src/audit.ts` est la source de vérité (déterministe, testé) ; le sous-agent `/agent/ops` ne fait que prioriser, sans inventer de point.
 - Repères fiscaux et juridiques : toujours indicatifs, renvoyer vers un conseiller.
 - Patrimoine familial : un bien est `PERSONAL` ou `FAMILY` ; les parts (`AssetShare`, pour mille, total 1000) et la valeur de chacun viennent de `packages/shared/src/patrimony.ts`. Les proches sont des `Party` de rôle `FAMILY` (consulter ou co-gérer). Pas de conversion de devise implicite.
-- Évaluation : `valueAsset` dans `packages/shared/src/valuation.ts` (revenu capitalisé, prix d'achat, valeurs saisies prioritaires) est la base ; l'agent l'affine avec les documents sans inventer de chiffre. Toujours indicatif.
+- Évaluation : l'expertise Keyo (`packages/shared/src/appraisal.ts`) pose les questions d'un expert et calcule l'estimation (maisons, appartements, plantations seulement). Écran `bien/[id]/expertise` (simulation sans clé) ; outils `get_appraisal_questions` et `submit_appraisal` pour l'agent. `valueAsset` (`valuation.ts`) ne donne qu'une première indication. Toujours indicatif.
 
 - Carte 3D Mapbox : nécessite `EXPO_PUBLIC_MAPBOX_TOKEN` (voir `apps/mobile/.env.example`) et un development build (`eas build --profile development --platform ios`). Sous Expo Go ou sans jeton, `src/map/AssetsMap.tsx` affiche l'illustration isométrique de secours.
 - Mobile : les écrans ne lisent les données que via `src/data/selectors.ts` et `src/data/store.ts` (données fictives pour l'instant, à remplacer par le client API).

@@ -3,12 +3,12 @@ import { Alert, Image, ScrollView, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChevronLeft, DoorOpen, Ellipsis, FileText, Gem, MessageCircle, TrendingUp, UserPlus, Users } from "lucide-react-native";
-import { cap, CONFIDENCE_LABEL, formatAmount, formatShare, money, profileOf, valueAsset } from "@keyo/shared";
+import { appraisalKind, cap, formatAmount, formatShare, money, profileOf } from "@keyo/shared";
 import { color, radius } from "@keyo/tokens";
 import { eventIcon } from "@/data/icons";
 import { buildMarkers } from "@/data/markers";
-import { currentMonth, monthYear, today } from "@/data/period";
-import { assetSummary, formatPermille, initialsOf, isOpenEvent, partyName, rentLines, yearFinance } from "@/data/selectors";
+import { currentMonth, fullDate, monthYear, today } from "@/data/period";
+import { assetSummary, formatPermille, initialsOf, isOpenEvent, latestAppraisal, partyName, rentLines, yearFinance } from "@/data/selectors";
 import { actions, useOwnerState } from "@/data/store";
 import { AssetsMap } from "@/map/AssetsMap";
 import { Amount, Button, IconCircle, ListRow, RoundButton, SectionTitle, Sheet, SheetAction, Status, Text } from "@/ui";
@@ -38,7 +38,7 @@ export default function AssetDetail() {
       year,
       incidents: state.events.filter((e) => e.assetId === asset.id && isOpenEvent(e)),
       docs: state.documents.filter((d) => d.assetId === asset.id),
-      valuation: valueAsset({ asset, units: state.units, agreements: state.agreements, documents: state.documents, today: today() }),
+      appraisal: latestAppraisal(state, asset.id),
       holders: asset.holding === "FAMILY" ? state.shares.filter((x) => x.assetId === asset.id) : [],
       markers: buildMarkers(state, [asset], currentMonth(), today()).map((m) => ({ ...m, label: undefined, pin: null, x: 0.5, y: 0.55 })),
     };
@@ -175,9 +175,9 @@ export default function AssetDetail() {
           divider={false}
           leading={<IconCircle icon={Gem} bg="mintTint" fg="mintDeep" />}
           title="Évaluation"
-          subtitle={data.valuation.declared ? "Valeur retenue" : `Estimation Keyo, ${CONFIDENCE_LABEL[data.valuation.confidence].toLowerCase()}`}
-          trailing={(data.valuation.declared ?? data.valuation.suggested) ? <Amount value={(data.valuation.declared ?? data.valuation.suggested)!} variant="rowTitle" /> : undefined}
-          chevron={!(data.valuation.declared ?? data.valuation.suggested)}
+          subtitle={!appraisalKind(asset) ? "Bientôt disponible pour ce type de bien" : data.appraisal ? `Expertise du ${fullDate(data.appraisal.createdAt.slice(0, 10))}` : "Faire estimer ce bien par Keyo"}
+          trailing={data.appraisal ? <Amount value={data.appraisal.result.value} variant="rowTitle" /> : asset.value ? <Amount value={asset.value} variant="rowTitle" /> : undefined}
+          chevron={!data.appraisal && !asset.value}
           onPress={() => router.push({ pathname: "/bien/[id]/evaluation", params: { id: asset.id } })}
         />
         {data.holders.length > 0 && (

@@ -2,10 +2,10 @@ import { useState } from "react";
 import { Alert, Pressable, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Trash2 } from "lucide-react-native";
-import { cap, formatShare, MINOR_UNITS, profileOf, sharesOf, valueAsset, type Holding } from "@keyo/shared";
+import { cap, formatShare, MINOR_UNITS, profileOf, sharesOf, type Holding } from "@keyo/shared";
 import { color, radius } from "@keyo/tokens";
 import { today } from "@/data/period";
-import { familyMembers } from "@/data/selectors";
+import { familyMembers, latestAppraisal } from "@/data/selectors";
 import { useUser } from "@/data/session";
 import { actions, useOwnerState } from "@/data/store";
 import { Button, Chip, SectionTitle, Segmented, SubScreen, Text, TextField } from "@/ui";
@@ -124,17 +124,22 @@ export default function EditAsset() {
       <TextField label={`Prix d'achat (${currencyLabel}), facultatif`} value={grouped(purchase)} onChangeText={(t) => setPurchase(digits(t))} keyboardType="number-pad" hint="Sert au calcul de la rentabilité." />
 
       <TextField label={`Valeur estimée aujourd'hui (${currencyLabel}), facultatif`} value={grouped(value)} onChangeText={(t) => setValue(digits(t))} keyboardType="number-pad" hint="Sert au calcul du patrimoine. À défaut, le prix d'achat est utilisé." />
-      <View style={{ flexDirection: "row", marginTop: 10 }}>
-        <Chip
-          active={false}
-          label="Reprendre l'estimation Keyo"
-          onPress={() => {
-            const v = valueAsset({ asset, units: state.units, agreements: state.agreements, documents: state.documents, today: today() });
-            if (v.suggested) setValue(String(v.suggested.amount / factor));
-            setUnits((list) => list.map((u) => (u.value || !u.id ? u : { ...u, value: String((v.units.find((x) => x.unitId === u.id)?.value?.amount ?? 0) / factor || "") })));
-          }}
-        />
-      </View>
+      {latestAppraisal(state, asset.id) && (
+        <View style={{ flexDirection: "row", marginTop: 10 }}>
+          <Chip
+            active={false}
+            label="Reprendre la dernière expertise"
+            onPress={() => {
+              const r = latestAppraisal(state, asset.id)!.result;
+              setValue(String(r.value.amount / factor));
+              setUnits((list) => list.map((u) => {
+                const v = r.perUnit.find((x) => x.unitId === u.id)?.value.amount;
+                return v ? { ...u, value: String(v / factor) } : u;
+              }));
+            }}
+          />
+        </View>
+      )}
 
       <SectionTitle>Propriété</SectionTitle>
       <Segmented

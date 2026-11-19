@@ -1,6 +1,6 @@
-import { AGENT_TOOLS, AUDIT_AREA_LABEL, CONFIDENCE_LABEL, formatMoney, formatShare, isAgentTool, kindLabel, money, profileOf, valueAsset, type AgentToolInput, type AgentToolName, type Currency } from "@keyo/shared";
+import { AGENT_TOOLS, appraisalKind, appraisalQuestions, appraise, AUDIT_AREA_LABEL, CONFIDENCE_LABEL, formatMoney, formatShare, isAgentTool, kindLabel, money, profileOf, valueAsset, type AgentToolInput, type AgentToolName, type Currency } from "@keyo/shared";
 import { currentMonth, monthName, nowIso, today } from "@/data/period";
-import { assetHolders, assetSummary, auditReport, familyAssets, familyHolders, formatPermille, isOpenEvent, monthSummary, partyName, portfolioValue, yearFinance } from "@/data/selectors";
+import { assetHolders, assetSummary, auditReport, familyAssets, familyHolders, formatPermille, isOpenEvent, latestAppraisal, monthSummary, partyName, portfolioValue, yearFinance } from "@/data/selectors";
 import { getSession, getSettings } from "@/data/session";
 import { actions, getOwnerState } from "@/data/store";
 import { agentMode, postOps, type TurnContext } from "./api";
@@ -159,9 +159,12 @@ const EXECUTORS: { [N in AgentToolName]: Executor<N> } = {
 
   get_valuation({ assetId }) {
     const s = getOwnerState();
-    const list = assetId ? s.assets.filter((a) => a.id === assetId) : s.assets;
-    if (assetId && !list.length) return fail(`Bien introuvable : ${assetId}`);
+    const all = assetId ? s.assets.filter((a) => a.id === assetId) : s.assets;
+    if (assetId && !all.length) return fail(`Bien introuvable : ${assetId}`);
+    const list = all.filter((a) => appraisalKind(a));
+    const unsupported = all.filter((a) => !appraisalKind(a)).map((a) => a.name);
     const out = list.map((a) => {
+      const last = latestAppraisal(s, a.id);
       const v = valueAsset({ asset: a, units: s.units, agreements: s.agreements, documents: s.documents, today: today() });
       const f = (x: { amount: number } | null) => (x ? fmt(x.amount, a.currency) : null);
       return {
@@ -171,7 +174,8 @@ const EXECUTORS: { [N in AgentToolName]: Executor<N> } = {
         kind: kindLabel(a.type, a.details.kind),
         city: a.location.city,
         country: a.location.country,
-        valueSaisie: f(v.declared),
+        derniereExpertise: last ? { date: last.createdAt.slice(0, 10), valeur: formatMoney(last.result.value), fourchette: `${formatMoney(last.result.low)} à ${formatMoney(last.result.high)}`, retenue: last.applied, facteurs: last.result.factors } : null,
+        valeurSaisie: f(v.declared),
         estimation: f(v.suggested),
         fourchette: v.low && v.high ? `${f(v.low)} à ${f(v.high)}` : null,
         parRevenu: f(v.incomeValue),
@@ -185,7 +189,30 @@ const EXECUTORS: { [N in AgentToolName]: Executor<N> } = {
         valeursMineures: { estimation: v.suggested?.amount ?? null, unites: Object.fromEntries(v.units.map((u) => [u.unitId, u.value?.amount ?? null])) },
       };
     });
-    return ok({ biens: out, avertissement: "Estimation indicative, à confirmer par un expert ou un notaire." }, `${out.length} bien${out.length > 1 ? "s" : ""} évalué${out.length > 1 ? "s" : ""}`);
+    return ok({ biens: out, nonPrisEnCharge: unsupported.length ? `${unsupported.join(", ")} : évaluation pas encore disponible pour ce type (maisons, appartements et plantations seulement).` : undefined, conseil: "Pour une vraie estimation, proposez l'entretien d'expert (get_appraisal_questions).", avertissement: "Estimation indicative, à confirmer par un expert ou un notaire." }, `${out.length} bien${out.length > 1 ? "s" : ""} évalué${out.length > 1 ? "s" : ""}`);
+  },
+
+  get_appraisal_questions({ assetId }) {
+    const s = getOwnerState();
+    const a = s.assets.find((x) => x.id === assetId);
+    if (!a) return fail(`Bien introuvable : ${assetId}`);
+    if (!appraisalKind(a)) return fail("L'expertise n'est disponible que pour les maisons, les appartements et les plantations.");
+    const questions = appraisalQuestions(a, s.units);
+    return ok({ bien: a.name, questions }, `${questions.length} questions`);
+  },
+
+  submit_appraisal({ assetId, answers, apply }) {
+    const s = getOwnerState();
+    const a = s.assets.find((x) => x.id === assetId);
+    if (!a) return fail(`Bien introuvable : ${assetId}`);
+    const r = appraise({ asset: a, units: s.units, agreements: s.agreements, documents: s.documents, today: today(), answers });
+    if (!r) return fail("L'expertise n'est disponible que pour les maisons, les appartements et les plantations.");
+    if (r.missing.length) return fail(`Réponses manquantes : ${r.missing.join(", ")}. Posez ces questions avant de conclure.`);
+    actions.saveAppraisal(a.id, answers, r, "AGENT", apply);
+    return ok(
+      { valeur: formatMoney(r.value), fourchette: `${formatMoney(r.low)} à ${formatMoney(r.high)}`, fiabilite: CONFIDENCE_LABEL[r.confidence], facteurs: r.factors, methode: r.method, ecartAvecAvisProprietaire: r.ownerGapPercent, retenue: apply },
+      `Expertise de ${a.name} : ${formatMoney(r.value)}`,
+    );
   },
 
   get_patrimony() {
@@ -417,6 +444,8 @@ export function describeAction(name: string, input: Record<string, unknown>): st
       const units = (input.unitValues as { unitId: string; value: number }[] | undefined) ?? [];
       return `Fixer la valeur de ${a} à ${fmt(Number(input.value), cur)}${units.length ? `, dont ${units.map((u) => `${s.units.find((x) => x.id === u.unitId)?.label ?? "unité"} ${fmt(u.value, cur)}`).join(", ")}` : ""}.`;
     }
+    case "submit_appraisal":
+      return `Enregistrer l'expertise de ${a}${input.apply ? " et retenir sa valeur pour le patrimoine" : ""}.`;
     case "invite_family_member":
       return `Ajouter ${input.firstName} ${input.lastName} (${String(input.relation).toLowerCase()}) à la famille, en ${input.access === "MANAGE" ? "co-gestion" : "consultation"}.`;
     case "set_family_shares": {

@@ -15,7 +15,7 @@ import { describeAction, executeTool, turnContext } from "./tools";
  */
 export type FeedItem =
   | { id: string; kind: "user"; text: string; attachments?: AttachmentRef[] }
-  | { id: string; kind: "agent"; text: string }
+  | { id: string; kind: "agent"; text: string; link?: { label: string; href: string } }
   | { id: string; kind: "activity"; label: string; ok: boolean }
   | { id: string; kind: "proposal"; toolUseId: string; name: string; input: Record<string, unknown>; description: string; status: "pending" | "done" | "declined" | "failed"; result?: string }
   | { id: string; kind: "error"; text: string };
@@ -76,9 +76,9 @@ export function speak(text: string) {
   Speech.speak(clean, { language: "fr-FR", rate: 1.0 });
 }
 
-function sayAgent(text: string) {
+function sayAgent(text: string, link?: { label: string; href: string }) {
   if (!text.trim()) return;
-  push({ id: id(), kind: "agent", text: text.trim() });
+  push({ id: id(), kind: "agent", text: text.trim(), link });
   if (getSettings().agentSpeaks) speak(text);
 }
 
@@ -181,7 +181,7 @@ export const conversation = {
       }
       const s = getSession();
       const r = refs.length ? demoAttachmentReply(refs[0]!, text) : demoReply(text, s.status === "signedIn" ? s.user.displayCurrency : "XOF");
-      sayAgent(r.text);
+      sayAgent(r.text, r.link);
       if (r.proposal) push({ id: id(), kind: "proposal", toolUseId: `demo-${id()}`, name: r.proposal.name, input: r.proposal.input, description: describeAction(r.proposal.name, r.proposal.input), status: "pending" });
     });
   },

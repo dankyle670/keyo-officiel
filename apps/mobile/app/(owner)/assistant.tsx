@@ -304,6 +304,15 @@ function Item({ item, busy, prev }: { item: FeedItem; busy: boolean; prev?: Feed
             <Text variant="body" selectable style={{ lineHeight: 24 }}>
               {body}
             </Text>
+            {item.link && (
+              <Pressable
+                onPress={() => router.push(item.link!.href as never)}
+                accessibilityRole="button"
+                style={({ pressed }) => ({ alignSelf: "flex-start", height: 44, paddingHorizontal: 18, borderRadius: 999, justifyContent: "center", backgroundColor: color.surfaceRaised, borderWidth: 1.5, borderColor: color.mint, opacity: pressed ? 0.7 : 1 })}
+              >
+                <Text variant="rowTitle">{item.link.label}</Text>
+              </Pressable>
+            )}
             <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
               <Pressable onPress={() => speak(item.text)} hitSlop={10} accessibilityRole="button" accessibilityLabel="Lire à voix haute">
                 <Volume2 size={18} strokeWidth={1.8} color={color.inkMuted} />

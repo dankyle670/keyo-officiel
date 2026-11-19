@@ -60,6 +60,7 @@ export default function RootLayout() {
             <Stack.Screen name="bien/[id]/inviter" options={{ presentation: "modal" }} />
             <Stack.Screen name="bien/[id]/modifier" options={{ presentation: "modal" }} />
             <Stack.Screen name="bien/[id]/evaluation" />
+            <Stack.Screen name="bien/[id]/expertise" options={{ presentation: "fullScreenModal" }} />
             <Stack.Screen name="famille/index" />
             <Stack.Screen name="famille/inviter" options={{ presentation: "modal" }} />
             <Stack.Screen name="famille/[id]/index" />

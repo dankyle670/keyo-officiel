@@ -1,7 +1,7 @@
-import { AUDIT_AREA_LABEL, CONFIDENCE_LABEL, formatMoney, formatShare, valueAsset, type Currency } from "@keyo/shared";
+import { appraisalKind, appraisalQuestions, AUDIT_AREA_LABEL, CONFIDENCE_LABEL, formatMoney, formatShare, type Currency } from "@keyo/shared";
 import { answer } from "@/data/assistant";
 import { addDays, currentMonth, monthName, today } from "@/data/period";
-import { auditReport, familyHolders, monthSummary, portfolioValue } from "@/data/selectors";
+import { auditReport, familyHolders, latestAppraisal, monthSummary, portfolioValue } from "@/data/selectors";
 import { getSession } from "@/data/session";
 import { getOwnerState } from "@/data/store";
 
@@ -10,7 +10,7 @@ import { getOwnerState } from "@/data/store";
  * injoignable). Il reconnaît quelques demandes courantes et passe par les mêmes outils et la même
  * carte de confirmation que le vrai agent.
  */
-export type DemoReply = { text: string; proposal?: { name: string; input: Record<string, unknown> } };
+export type DemoReply = { text: string; proposal?: { name: string; input: Record<string, unknown> }; link?: { label: string; href: string } };
 
 const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 
@@ -34,22 +34,31 @@ export function demoReply(question: string, currency: Currency): DemoReply {
   if (s.assets.length === 0) return { text: "Vous n'avez encore aucun bien. Ajoutez-en un depuis l'onglet Biens, ou chargez les données de démonstration dans le Profil." };
 
   // Évaluation : avant le contrôle, car « documents » apparaît souvent dans la demande.
-  if (/(evalu|estim|vaut|valeur)/.test(q)) {
+  // L'expertise (maisons, appartements, plantations) passe par l'entretien d'expert.
+  if (/(evalu|estim|vaut|valeur|expertis)/.test(q)) {
     const one = findAsset(q);
-    const list = one ? [one] : s.assets;
-    const val = (a: (typeof list)[number]) => valueAsset({ asset: a, units: s.units, agreements: s.agreements, documents: s.documents, today: today() });
-    const lines = list.map((a) => {
-      const v = val(a);
-      const x = v.declared ?? v.suggested;
-      return `- ${a.name} : ${x ? formatMoney(x) : "à compléter"} (${CONFIDENCE_LABEL[v.confidence].toLowerCase()})${v.missing[0] ? `. Pour préciser : ${v.missing[0]}` : ""}`;
+    if (one) {
+      if (!appraisalKind(one))
+        return { text: `L'expertise de ${one.name} n'est pas encore disponible : Keyo évalue pour l'instant les maisons, les appartements et les plantations. Vous pouvez saisir sa valeur vous-même dans « Modifier le bien ».` };
+      const last = latestAppraisal(s, one.id);
+      const n = appraisalQuestions(one, s.units).length;
+      return {
+        text: last
+          ? `Dernière expertise de ${one.name} : ${formatMoney(last.result.value)}, entre ${formatMoney(last.result.low)} et ${formatMoney(last.result.high)} (${CONFIDENCE_LABEL[last.result.confidence].toLowerCase()}). Si quelque chose a changé (travaux, titre obtenu), refaisons l'entretien.\nSources : expertise Keyo`
+          : `Pour estimer ${one.name} sérieusement, je vais vous poser ${n} questions, comme un expert venu sur place : ${appraisalKind(one) === "PLANTATION" ? "culture, surface, stade des plants, rendement, entretien, titre et accès" : "quartier, surface, âge, état, finitions, équipements, titre et accès"}. Comptez deux minutes.`,
+        link: { label: last ? "Refaire l'expertise" : "Commencer l'expertise", href: `/bien/${one.id}/expertise` },
+      };
+    }
+    const ok = s.assets.filter((a) => appraisalKind(a));
+    const lines = ok.map((a) => {
+      const last = latestAppraisal(s, a.id);
+      return `- ${a.name} : ${last ? `${formatMoney(last.result.value)} (expertise du ${last.createdAt.slice(8, 10)}/${last.createdAt.slice(5, 7)})` : "pas encore expertisé"}`;
     });
-    const v0 = one ? val(one) : undefined;
+    const next = ok.find((a) => !latestAppraisal(s, a.id));
+    const others = s.assets.length - ok.length;
     return {
-      text: `${one ? "Estimation indicative" : "Estimations indicatives"}, par le revenu capitalisé et le prix d'achat :\n${lines.join("\n")}\nLe détail par unité est dans l'écran Évaluation de chaque bien. À confirmer par un expert pour une vente ou un partage.\nSources : évaluation Keyo`,
-      proposal:
-        one && v0?.suggested && !v0.declared
-          ? { name: "set_asset_value", input: { assetId: one.id, value: v0.suggested.amount, unitValues: v0.units.filter((u) => u.value).map((u) => ({ unitId: u.unitId, value: u.value!.amount })) } }
-          : undefined,
+      text: `${ok.length ? `Biens que je peux expertiser :\n${lines.join("\n")}` : "Aucun de vos biens n'est encore expertisable."}${others ? `\n${others} autre${others > 1 ? "s" : ""} bien${others > 1 ? "s" : ""} (immeuble, local, véhicule…) : bientôt.` : ""}${next ? `\nCommençons par ${next.name} ?` : ""}\nSources : expertise Keyo`,
+      link: next ? { label: `Expertiser ${next.name}`, href: `/bien/${next.id}/expertise` } : undefined,
     };
   }
 

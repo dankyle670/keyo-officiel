@@ -8,6 +8,8 @@ import {
   type Agreement,
   type Asset,
   type AssetShare,
+  type AppraisalAnswers,
+  type AppraisalResult,
   type Holding,
   type AssetEvent,
   type AssetUnit,
@@ -48,6 +50,8 @@ const CATEGORY_TRADE: Record<string, string> = {
 
 export type Message = { id: string; partyId: string; from: "OWNER" | "PARTY"; text: string; at: string };
 
+export type Appraisal = { id: string; assetId: string; answers: AppraisalAnswers; result: AppraisalResult; createdAt: string; by: "OWNER" | "AGENT"; applied: boolean };
+
 export type OwnerState = {
   assets: Asset[];
   units: AssetUnit[];
@@ -62,6 +66,8 @@ export type OwnerState = {
   missions: Mission[];
   /** Parts des biens de famille. */
   shares: AssetShare[];
+  /** Expertises Keyo réalisées (entretien et résultat), la plus récente en dernier. */
+  appraisals: Appraisal[];
   notificationsReadAt: string;
 };
 
@@ -151,6 +157,7 @@ export const actions = {
         maintenance: s.maintenance.filter((m) => m.assetId !== assetId),
         missions: s.missions.filter((m) => m.assetId !== assetId),
         shares: s.shares.filter((x) => x.assetId !== assetId),
+        appraisals: s.appraisals.filter((x) => x.assetId !== assetId),
       };
     });
   },
@@ -200,6 +207,28 @@ export const actions = {
       documents: [...s.documents, leaseDoc],
     }));
     return { agreementId, partyId };
+  },
+
+  /** Enregistre une expertise ; si `apply`, sa valeur devient celle du bien et de ses unités. */
+  saveAppraisal(assetId: string, answers: AppraisalAnswers, result: AppraisalResult, by: "OWNER" | "AGENT", apply: boolean): string {
+    const id = newId("ev");
+    setState((s) => ({ ...s, appraisals: [...s.appraisals, { id, assetId, answers, result, createdAt: nowIso(), by, applied: false }] }));
+    if (apply) actions.applyAppraisal(id);
+    return id;
+  },
+
+  applyAppraisal(appraisalId: string) {
+    setState((s) => {
+      const ev = s.appraisals.find((x) => x.id === appraisalId);
+      if (!ev) return s;
+      const values = new Map(ev.result.perUnit.map((u) => [u.unitId, u.value.amount]));
+      return {
+        ...s,
+        assets: s.assets.map((a) => (a.id === ev.assetId ? { ...a, value: ev.result.value } : a)),
+        units: s.units.map((u) => (values.has(u.id) ? { ...u, details: { ...u.details, value: values.get(u.id) } } : u)),
+        appraisals: s.appraisals.map((x) => (x.assetId === ev.assetId ? { ...x, applied: x.id === appraisalId } : x)),
+      };
+    });
   },
 
   /** Bien personnel ou de famille, et ses parts (remplacées en bloc). */

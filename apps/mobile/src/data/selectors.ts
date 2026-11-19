@@ -311,3 +311,5 @@ export function memberDigest(s: OwnerState, holderId: string, month: string, on:
     };
   });
 }
+
+export const latestAppraisal = (s: OwnerState, assetId: string) => [...s.appraisals].reverse().find((x) => x.assetId === assetId);

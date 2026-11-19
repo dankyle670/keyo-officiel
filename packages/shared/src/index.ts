@@ -6,5 +6,6 @@ export * from "./phone.ts";
 export * from "./modules/index.ts";
 export * from "./patrimony.ts";
 export * from "./valuation.ts";
+export * from "./appraisal.ts";
 export * from "./audit.ts";
 export * from "./agent.ts";
