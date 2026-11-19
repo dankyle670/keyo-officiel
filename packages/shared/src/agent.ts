@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Currency } from "./money.ts";
-import { MissionKind, Urgency } from "./domain.ts";
+import { DocumentKind, MissionKind, Urgency } from "./domain.ts";
 import { RealEstateKind } from "./modules/real-estate.ts";
 
 /**
@@ -62,6 +62,21 @@ export const AGENT_TOOLS = {
     description:
       "Lance le contrôle de gestion : pièces manquantes, fiscalité, retards, contrats qui se terminent, incidents bloqués, entretien. Renvoie les points à traiter, classés par gravité. À utiliser pour « est-ce que tout est en ordre ? ».",
     input: z.object({}),
+  },
+  file_document: {
+    kind: "write",
+    risk: "low",
+    label: "Classement d'un document",
+    description:
+      "Classe une pièce jointe envoyée dans la conversation (identifiant « pj-… ») dans les documents d'un bien : bail, état des lieux, titre, quittance, facture, assurance, déclaration fiscale, enregistrement, photo. Lisez d'abord la pièce pour choisir le type, le bien et, s'il y a lieu, le contrat (agreementId) et l'année fiscale.",
+    input: z.object({
+      attachmentId: z.string(),
+      assetId: z.string(),
+      kind: DocumentKind,
+      label: z.string().min(1).describe("Libellé court, par exemple « Attestation d'assurance 2026 »"),
+      agreementId: z.string().optional(),
+      year: z.number().int().optional(),
+    }),
   },
   add_expense: {
     kind: "write",

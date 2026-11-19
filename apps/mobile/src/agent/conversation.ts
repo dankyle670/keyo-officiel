@@ -4,7 +4,8 @@ import { AGENT_TOOLS, isAgentTool, needsConfirmation } from "@keyo/shared";
 import { KEYS, load, remove, save } from "@/data/persist";
 import { getSession, getSettings } from "@/data/session";
 import { agentMode, AgentUnavailable, postTurn, type ApiMessage, type ContentBlock } from "./api";
-import { demoReply } from "./demo";
+import { toContentBlock, type Attachment } from "./attachments";
+import { demoAttachmentReply, demoReply } from "./demo";
 import { describeAction, executeTool, turnContext } from "./tools";
 
 /**
@@ -13,11 +14,14 @@ import { describeAction, executeTool, turnContext } from "./tools";
  * les données attendent l'accord du propriétaire (carte de confirmation).
  */
 export type FeedItem =
-  | { id: string; kind: "user"; text: string }
+  | { id: string; kind: "user"; text: string; attachments?: AttachmentRef[] }
   | { id: string; kind: "agent"; text: string }
   | { id: string; kind: "activity"; label: string; ok: boolean }
   | { id: string; kind: "proposal"; toolUseId: string; name: string; input: Record<string, unknown>; description: string; status: "pending" | "done" | "declined" | "failed"; result?: string }
   | { id: string; kind: "error"; text: string };
+
+/** Pièce jointe gardée sur le téléphone (sans son contenu encodé). */
+export type AttachmentRef = { id: string; name: string; uri: string; kind: "image" | "pdf" };
 
 type ToolResult = { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean };
 
@@ -31,21 +35,25 @@ type State = {
   mode: "claude" | "demo" | "unknown";
   /** Serveur injoignable : mode démo par défaut. */
   offline: boolean;
+  /** Pièces jointes de la conversation, que l'agent peut classer (outil file_document). */
+  attachments: Record<string, AttachmentRef>;
 };
 
 const MAX_STEPS = 12;
-let state: State = { feed: [], history: [], pending: null, busy: false, mode: "unknown", offline: false };
+let state: State = { feed: [], history: [], pending: null, busy: false, mode: "unknown", offline: false, attachments: {} };
 const listeners = new Set<() => void>();
 const set = (patch: Partial<State>) => {
   state = { ...state, ...patch };
-  const { feed, history, pending } = state;
-  save(KEYS.agent, { feed: feed.slice(-200), history, pending });
+  const { feed, history, pending, attachments } = state;
+  save(KEYS.agent, { feed: feed.slice(-200), history, pending, attachments });
   listeners.forEach((l) => l());
 };
 
 let seq = 0;
 const id = () => `f-${Date.now().toString(36)}-${(seq++).toString(36)}`;
 const push = (...items: FeedItem[]) => set({ feed: [...state.feed, ...items] });
+
+export const getAttachment = (id: string) => state.attachments[id];
 
 export function useConversation(): State {
   return useSyncExternalStore(
@@ -150,25 +158,29 @@ async function guard(task: () => Promise<void>) {
 
 export const conversation = {
   async hydrate() {
-    const saved = await load<Pick<State, "feed" | "history" | "pending">>(KEYS.agent);
+    const saved = await load<Pick<State, "feed" | "history" | "pending" | "attachments">>(KEYS.agent);
     if (saved) state = { ...state, ...saved };
     listeners.forEach((l) => l());
   },
 
-  async send(raw: string) {
-    const text = raw.trim();
+  async send(raw: string, files: Attachment[] = []) {
+    const text = raw.trim() || (files.length ? "Voici un document." : "");
     if (!text || state.busy || state.pending) return;
     Speech.stop();
-    push({ id: id(), kind: "user", text });
+    const refs: AttachmentRef[] = files.map(({ id: aid, name, uri, kind }) => ({ id: aid, name, uri, kind }));
+    push({ id: id(), kind: "user", text: raw.trim(), attachments: refs.length ? refs : undefined });
+    set({ attachments: { ...state.attachments, ...Object.fromEntries(refs.map((r) => [r.id, r])) } });
     await guard(async () => {
       const mode = await ensureMode();
       if (mode === "claude") {
-        set({ history: [...state.history, { role: "user", content: text }] });
+        const note = refs.length ? `\n\n[Pièces jointes : ${refs.map((r) => `${r.id} « ${r.name} » (${r.kind === "pdf" ? "PDF" : "photo"})`).join(", ")}]` : "";
+        const content = files.length ? [...files.map(toContentBlock), { type: "text", text: text + note }] : text;
+        set({ history: [...state.history, { role: "user", content }] });
         await runClaude();
         return;
       }
       const s = getSession();
-      const r = demoReply(text, s.status === "signedIn" ? s.user.displayCurrency : "XOF");
+      const r = refs.length ? demoAttachmentReply(refs[0]!, text) : demoReply(text, s.status === "signedIn" ? s.user.displayCurrency : "XOF");
       sayAgent(r.text);
       if (r.proposal) push({ id: id(), kind: "proposal", toolUseId: `demo-${id()}`, name: r.proposal.name, input: r.proposal.input, description: describeAction(r.proposal.name, r.proposal.input), status: "pending" });
     });
@@ -196,7 +208,7 @@ export const conversation = {
   async reset() {
     Speech.stop();
     await remove(KEYS.agent);
-    state = { ...state, feed: [], history: [], pending: null, mode: "unknown", offline: false };
+    state = { ...state, feed: [], history: [], pending: null, mode: "unknown", offline: false, attachments: {} };
     listeners.forEach((l) => l());
   },
 

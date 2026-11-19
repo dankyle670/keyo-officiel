@@ -4,6 +4,7 @@ import { assetSummary, auditReport, formatPermille, isOpenEvent, monthSummary, p
 import { getSession, getSettings } from "@/data/session";
 import { actions, getOwnerState } from "@/data/store";
 import { agentMode, postOps, type TurnContext } from "./api";
+import { getAttachment } from "./conversation";
 
 /**
  * Exécution des outils de l'agent sur les données du téléphone. Chaque entrée est validée avec le
@@ -164,6 +165,14 @@ const EXECUTORS: { [N in AgentToolName]: Executor<N> } = {
     );
   },
 
+  file_document({ attachmentId, assetId, kind, label, agreementId, year }) {
+    const file = getAttachment(attachmentId);
+    if (!file) return fail(`Pièce jointe introuvable : ${attachmentId}`);
+    if (!assetName(assetId)) return fail(`Bien introuvable : ${assetId}`);
+    actions.addDocument({ assetId, kind, label, url: file.uri, agreementId, year });
+    return ok({ done: true }, `« ${label} » classé dans ${assetName(assetId)}`);
+  },
+
   add_expense({ assetId, label, category, amount, currency: c, date }) {
     if (!assetName(assetId)) return fail(`Bien introuvable : ${assetId}`);
     actions.addExpense({ assetId, label, category, amount: money(amount, c), date: date ?? today() });
@@ -283,6 +292,10 @@ export function describeAction(name: string, input: Record<string, unknown>): st
   const c = (input.currency as Currency) ?? currency();
   const n = (v: unknown) => (typeof v === "number" ? fmt(v, c) : "");
   switch (name) {
+    case "file_document": {
+      const KIND: Record<string, string> = { LEASE: "bail", INVENTORY: "état des lieux", TITLE_DEED: "titre de propriété", RECEIPT: "quittance", INVOICE: "facture", INSURANCE: "assurance", TAX_FILING: "document fiscal", REGISTRATION: "enregistrement", PHOTO: "photo", REPORT: "rapport" };
+      return `Classer « ${input.label} » comme ${KIND[input.kind as string] ?? "document"} dans ${a}.`;
+    }
     case "add_expense":
       return `Ajouter une dépense de ${n(input.amount)} « ${input.label} » sur ${a}.`;
     case "create_asset":

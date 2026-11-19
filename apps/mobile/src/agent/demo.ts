@@ -95,3 +95,33 @@ export function demoReply(question: string, currency: Currency): DemoReply {
   if (a.sources.length) lines.push(`Sources : ${a.sources.join(", ")}`);
   return { text: lines.join("\n") };
 }
+
+/** Mode démo : un document joint est proposé au classement, type deviné d'après son nom et le message. */
+export function demoAttachmentReply(file: { id: string; name: string; kind: "image" | "pdf" }, message: string): DemoReply {
+  const q = norm(`${file.name} ${message}`);
+  const s = getOwnerState();
+  const asset = findAsset(q) ?? s.assets[0];
+  if (!asset) return { text: "Ajoutez d'abord un bien : je pourrai ensuite y classer vos documents." };
+  const kind = /assur/.test(q)
+    ? "INSURANCE"
+    : /bail|contrat/.test(q)
+      ? "LEASE"
+      : /etat des lieux/.test(q)
+        ? "INVENTORY"
+        : /impot|declar|fiscal|foncier/.test(q)
+          ? "TAX_FILING"
+          : /enregistr/.test(q)
+            ? "REGISTRATION"
+            : /titre|acd|acte/.test(q)
+              ? "TITLE_DEED"
+              : /facture|devis|recu/.test(q)
+                ? "INVOICE"
+                : file.kind === "image"
+                  ? "PHOTO"
+                  : "INVOICE";
+  const label = file.name.replace(/\.[a-z0-9]+$/i, "");
+  return {
+    text: `J'ai reçu « ${file.name} ». En mode démo, je ne lis pas son contenu : je vous propose de le classer dans les documents de ${asset.name}.`,
+    proposal: { name: "file_document", input: { attachmentId: file.id, assetId: asset.id, kind, label } },
+  };
+}
