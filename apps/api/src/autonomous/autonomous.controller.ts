@@ -7,6 +7,7 @@ import { Orchestrator } from "./orchestrator.ts";
 import { AutonomousScheduler } from "./scheduler.ts";
 import { OwnerSnapshot, type ActionStatus, type AgentStore } from "./store.ts";
 import { AGENT_STORE } from "./tokens.ts";
+import { owner } from "../owner.ts";
 
 const RunBody = z.object({ trigger: z.enum(["DAILY", "WEEKLY", "MONTHLY", "MANUAL"]).default("MANUAL"), note: z.string().max(300).optional() });
 const EventBody = z.object({ type: z.enum(["PAYMENT_RECEIVED", "INCIDENT_REPORTED", "UNIT_VACATED"]), note: z.string().max(300).optional() });
@@ -17,16 +18,6 @@ const parse = <T>(schema: z.ZodType<T>, body: unknown): T => {
   return r.data;
 };
 
-/**
- * Propriétaire courant. Provisoire, en attendant la connexion téléphone + code SMS : identifiant
- * passé en en-tête, et jeton partagé KEYO_API_TOKEN exigé s'il est défini (à définir hors du poste de dev).
- */
-function owner(id: string | undefined, auth: string | undefined) {
-  const token = process.env.KEYO_API_TOKEN;
-  if (token && auth !== `Bearer ${token}`) throw new HttpException({ error: "Non autorisé" }, HttpStatus.UNAUTHORIZED);
-  if (!id || !/^[\w-]{1,64}$/.test(id)) throw new HttpException({ error: "En-tête x-keyo-owner manquant" }, HttpStatus.BAD_REQUEST);
-  return id;
-}
 
 const reply = (o: GateOutcome) => {
   if (o.status === "INVALID" || o.status === "DUPLICATE") throw new HttpException({ error: o.reason }, HttpStatus.CONFLICT);

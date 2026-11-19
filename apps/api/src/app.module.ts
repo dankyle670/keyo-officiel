@@ -9,9 +9,12 @@ import { Orchestrator } from "./autonomous/orchestrator.ts";
 import { AutonomousScheduler } from "./autonomous/scheduler.ts";
 import { MemoryAgentStore, type AgentStore } from "./autonomous/store.ts";
 import { AGENT_STORE } from "./autonomous/tokens.ts";
+import { ConversationsController, CONVERSATION_STORE } from "./conversations/conversations.controller.ts";
+import { MemoryConversationStore, RedisConversationStore } from "./conversations/store.ts";
+import { Redis } from "ioredis";
 
 @Module({
-  controllers: [AgentController, AutonomousController],
+  controllers: [AgentController, AutonomousController, ConversationsController],
   providers: [
     AgentService,
     // Sans clé, l'agent répond en mode démo (côté app) : rien ne casse en développement.
@@ -22,6 +25,8 @@ import { AGENT_STORE } from "./autonomous/tokens.ts";
     { provide: ActionGate, inject: [AGENT_STORE, ConnectorRegistry], useFactory: (s: AgentStore, c: ConnectorRegistry) => new ActionGate(s, c) },
     { provide: Orchestrator, inject: [AGENT_STORE, ActionGate, ANTHROPIC], useFactory: (s: AgentStore, g: ActionGate, a: Anthropic | null) => new Orchestrator(s, g, a) },
     AutonomousScheduler,
+    // Conversations du chat : Redis (persisté sur disque) si REDIS_URL, sinon mémoire.
+    { provide: CONVERSATION_STORE, useFactory: () => (process.env.REDIS_URL ? new RedisConversationStore(new Redis(process.env.REDIS_URL)) : new MemoryConversationStore()) },
   ],
 })
 export class AppModule {}

@@ -3,7 +3,7 @@ import * as Speech from "expo-speech";
 import { AGENT_TOOLS, isAgentTool, needsConfirmation } from "@keyo/shared";
 import { KEYS, load, remove, save } from "@/data/persist";
 import { getSession, getSettings } from "@/data/session";
-import { agentMode, AgentUnavailable, postTurn, type ApiMessage } from "./api";
+import { agentMode, AgentUnavailable, apiBase, postTurn, type ApiMessage } from "./api";
 import { toContentBlock, type Attachment } from "./attachments";
 import { demoAttachmentReply, demoReply } from "./demo";
 import { demoAutonomyReply } from "./demoAutonomy";
@@ -39,6 +39,8 @@ export type Thread = {
   pending: { order: string[]; results: Record<string, ToolResult> } | null;
   /** Pièces jointes de la conversation, que l'agent peut classer (outil file_document). */
   attachments: Record<string, AttachmentRef>;
+  /** Connue du serveur mais pas encore téléchargée sur ce téléphone. */
+  remote?: boolean;
 };
 
 type State = Thread & {
@@ -61,7 +63,38 @@ const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 
 const threadOf = (s: State): Thread => ({ id: s.id, title: s.title, updatedAt: s.updatedAt, feed: s.feed.slice(-200), history: s.history, pending: s.pending, attachments: s.attachments });
-const persist = () => save(KEYS.agent, { v: 2, active: threadOf(state), archive: state.archive });
+const persist = () => {
+  save(KEYS.agent, { v: 2, active: threadOf(state), archive: state.archive });
+  schedulePush();
+};
+
+/**
+ * Copie des conversations sur le serveur (apps/api, /conversations) : elles survivent à un
+ * changement de téléphone et l'équipe peut les relire. Hors ligne, l'envoi est retenté plus tard.
+ */
+const ownerId = () => {
+  const s = getSession();
+  return s.status === "signedIn" ? s.user.id.replace(/[^\w-]/g, "").slice(0, 64) : "";
+};
+async function remote<T>(path: string, method = "GET", body?: unknown): Promise<T> {
+  const o = ownerId();
+  if (!o) throw new Error("Session absente");
+  const res = await fetch(`${apiBase()}/conversations${path}`, { method, headers: { "content-type": "application/json", "x-keyo-owner": o }, body: body === undefined ? undefined : JSON.stringify(body) });
+  if (!res.ok) throw new Error(`Serveur : ${res.status}`);
+  return (await res.json()) as T;
+}
+const pushThread = (t: Thread) => (t.feed.length && !t.remote ? remote(`/${t.id}`, "PUT", t).then(() => undefined) : Promise.resolve());
+let pushTimer: ReturnType<typeof setTimeout> | undefined;
+let dirty = false;
+function schedulePush() {
+  dirty = true;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(() => {
+    if (state.busy) return schedulePush();
+    dirty = false;
+    pushThread(threadOf(state)).catch(() => (dirty = true));
+  }, 2000);
+}
 
 const set = (patch: Partial<State>) => {
   const touched = "feed" in patch || "history" in patch;
@@ -313,17 +346,27 @@ export const conversation = {
   newThread() {
     if (state.busy) return;
     Speech.stop();
+    void pushThread(threadOf(state)).catch(() => undefined);
     const archive = state.feed.length ? [threadOf(state), ...state.archive].slice(0, MAX_THREADS) : state.archive;
     state = { ...state, ...blank(), archive };
     persist();
     emit();
   },
 
-  openThread(threadId: string) {
+  async openThread(threadId: string) {
     if (state.busy || threadId === state.id) return;
-    const t = state.archive.find((x) => x.id === threadId);
+    let t = state.archive.find((x) => x.id === threadId);
     if (!t) return;
+    if (t.remote) {
+      // Conversation venue d'un autre appareil : téléchargée à la première ouverture.
+      try {
+        t = { ...(await remote<Thread>(`/${threadId}`)), remote: false };
+      } catch {
+        return;
+      }
+    }
     Speech.stop();
+    void pushThread(threadOf(state)).catch(() => undefined);
     const rest = state.archive.filter((x) => x.id !== threadId);
     state = { ...state, ...t, archive: state.feed.length ? [threadOf(state), ...rest].slice(0, MAX_THREADS) : rest };
     persist();
@@ -331,6 +374,7 @@ export const conversation = {
   },
 
   deleteThread(threadId: string) {
+    void remote(`/${threadId}`, "DELETE").catch(() => undefined);
     if (threadId === state.id) {
       if (state.busy) return;
       state = { ...state, ...blank() };
@@ -343,9 +387,32 @@ export const conversation = {
   async reset() {
     Speech.stop();
     current?.abort();
+    for (const t of [threadOf(state), ...state.archive]) void remote(`/${t.id}`, "DELETE").catch(() => undefined);
     await remove(KEYS.agent);
     state = { ...state, ...blank(), archive: [], busy: false, mode: "unknown", offline: false };
     emit();
+  },
+
+  /**
+   * Rapproche le téléphone et le serveur : envoie les conversations locales absentes du serveur,
+   * ajoute à l'historique celles du serveur absentes du téléphone (téléchargées à l'ouverture).
+   */
+  async syncWithServer() {
+    try {
+      const list = await remote<{ id: string; title: string; updatedAt: string }[]>("");
+      const local = [threadOf(state), ...state.archive].filter((t) => t.feed.length || t.remote);
+      const known = new Set(local.map((t) => t.id));
+      const onServer = new Set(list.map((x) => x.id));
+      for (const t of local) if (!onServer.has(t.id) || (t.id === state.id && dirty)) await pushThread(t).catch(() => undefined);
+      const stubs: Thread[] = list.filter((x) => !known.has(x.id)).map((x) => ({ id: x.id, title: x.title, updatedAt: x.updatedAt, feed: [], history: [], pending: null, attachments: {}, remote: true }));
+      if (stubs.length) {
+        state = { ...state, archive: [...state.archive, ...stubs].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, MAX_THREADS) };
+        save(KEYS.agent, { v: 2, active: threadOf(state), archive: state.archive });
+        emit();
+      }
+    } catch {
+      // Serveur injoignable : nouvel essai à la prochaine synchronisation.
+    }
   },
 
   /** Revérifie la disponibilité du serveur (après ajout de la clé, par exemple). */

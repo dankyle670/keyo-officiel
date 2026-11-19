@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import { AppState } from "react-native";
 import { actions, getOwnerState, subscribeOwnerState, type OwnerState } from "@/data/store";
 import type { User } from "@/data/session";
+import { conversation } from "@/agent/conversation";
 import { autonomousApi, setAutonomousOwner } from "./api";
 
 /**
@@ -49,6 +50,7 @@ export async function syncNow(): Promise<boolean> {
     await autonomousApi.putSnapshot(snapshotOf(getOwnerState(), current));
     actions.applyAgentMutations(await autonomousApi.pullMutations());
     setStatus({ reachable: true, lastSync: new Date().toISOString(), error: undefined });
+    void conversation.syncWithServer();
     return true;
   } catch (e) {
     setStatus({ reachable: false, error: e instanceof Error ? e.message : "Synchronisation impossible." });
