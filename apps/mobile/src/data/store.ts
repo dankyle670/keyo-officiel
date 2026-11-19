@@ -301,8 +301,8 @@ export const actions = {
   },
 
   /**
-   * Modifie un contrat. Seules les échéances à venir non payées sont recalculées (montant, date) :
-   * le passé et les sommes déjà reçues ne changent jamais.
+   * Modifie un contrat. Les échéances du mois en cours et des mois suivants sans aucun encaissement
+   * sont recalculées (montant, date) ; les mois passés et les sommes déjà reçues ne changent jamais.
    */
   updateLease(agreementId: string, patch: { amount?: number; deposit?: number; dueDay?: number; endDate?: string | null }) {
     const now = today();
@@ -319,7 +319,7 @@ export const actions = {
       };
       const schedule = s.schedule
         .map((it) => {
-          if (it.agreementId !== agreementId || it.status === "PAID" || it.received.amount > 0 || it.dueDate <= now) return it;
+          if (it.agreementId !== agreementId || it.status === "PAID" || it.received.amount > 0 || it.dueDate.slice(0, 7) < now.slice(0, 7)) return it;
           const dueDate = dueDateFor(it.dueDate.slice(0, 7), next.dueDay);
           const expected = next.periodicAmount;
           return { ...it, dueDate, expected, status: dueStatus(expected, it.received, dueDate, now) };

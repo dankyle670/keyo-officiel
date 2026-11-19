@@ -10,7 +10,7 @@ import { useUser } from "@/data/session";
 import { actions, useOwnerState } from "@/data/store";
 import { Button, Chip, SectionTitle, Segmented, SubScreen, Text, TextField } from "@/ui";
 
-type UnitDraft = { id?: string; label: string; measure: string; rent: string; value: string; occupied: boolean };
+type UnitDraft = { id?: string; label: string; measure: string; rent: string; value: string; occupied: boolean; leaseId?: string };
 
 const digits = (t: string) => t.replace(/\D/g, "");
 const grouped = (t: string) => (t ? Number(t).toLocaleString("fr-FR").replace(/\s/g, " ") : "");
@@ -23,7 +23,8 @@ export default function EditAsset() {
   const profile = profileOf(asset?.type ?? "REAL_ESTATE");
   const factor = 10 ** MINOR_UNITS[asset?.currency ?? "XOF"];
   const key = profile.measure?.key;
-  const occupied = new Set(state.agreements.filter((g) => g.assetId === id && (!g.endDate || g.endDate >= today())).map((g) => g.unitId));
+  const currentLeases = state.agreements.filter((g) => g.assetId === id && (!g.endDate || g.endDate >= today()));
+  const occupied = new Set(currentLeases.map((g) => g.unitId));
 
   const [name, setName] = useState(asset?.name ?? "");
   const [kind, setKind] = useState(String(asset?.details.kind ?? ""));
@@ -37,9 +38,17 @@ export default function EditAsset() {
         id: u.id,
         label: u.label,
         measure: key && typeof u.details[key] === "number" ? String(u.details[key]).replace(".", ",") : "",
-        rent: typeof u.details.askingRent === "number" ? String(u.details.askingRent / factor) : "",
+        rent: (() => {
+          const g = currentLeases.find((x) => x.unitId === u.id);
+          if (g) return String(g.periodicAmount.amount / factor);
+          return typeof u.details.askingRent === "number" ? String(u.details.askingRent / factor) : "";
+        })(),
         value: typeof u.details.value === "number" ? String(u.details.value / factor) : "",
         occupied: occupied.has(u.id),
+        ...(() => {
+          const g = currentLeases.find((x) => x.unitId === u.id);
+          return g ? { leaseId: g.id } : {};
+        })(),
       })),
   );
   const [removed, setRemoved] = useState<string[]>([]);
@@ -96,6 +105,9 @@ export default function EditAsset() {
       const details = { ...measureValue(u.measure), askingRent: u.rent ? Number(u.rent) * factor : undefined, value: u.value ? Number(u.value) * factor : undefined };
       if (u.id) actions.updateUnit(u.id, { label: u.label.trim(), details });
       else actions.addUnit(asset.id, u.label.trim(), details);
+      // Logement occupé : le montant saisi est celui du contrat en cours.
+      const g = u.leaseId ? currentLeases.find((x) => x.id === u.leaseId) : undefined;
+      if (g && u.rent && Number(u.rent) * factor !== g.periodicAmount.amount) actions.updateLease(g.id, { amount: Number(u.rent) * factor });
     });
     router.back();
   };
@@ -182,7 +194,7 @@ export default function EditAsset() {
 
       <SectionTitle>{cap(profile.unit.many)}</SectionTitle>
       <Text variant="rowSubtitle" tone="inkMuted" style={{ marginTop: 4 }}>
-        Le montant demandé s'applique au prochain {profile.occupant.one}. Pour un contrat en cours, modifiez le contrat.
+        Pour {profile.unit.feminine ? "une" : "un"} {profile.unit.one} occupé{profile.unit.feminine ? "e" : ""}, le montant modifie le contrat en cours, dès ce mois-ci si rien n'a été payé. Pour {profile.unit.feminine ? "une" : "un"} {profile.unit.one} libre, c'est le montant proposé au prochain {profile.occupant.one}.
       </Text>
       {units.map((u, i) => (
         <View key={u.id ?? `new-${i}`} style={{ marginTop: 14, padding: 16, borderRadius: radius.card, backgroundColor: color.surfaceRaised }}>
@@ -200,7 +212,7 @@ export default function EditAsset() {
               </View>
             )}
             <View style={{ flex: 1 }}>
-              <TextField label={`${cap(profile.amount)} demandé (${currencyLabel})`} value={grouped(u.rent)} onChangeText={(t) => setUnit(i, { rent: digits(t) })} keyboardType="number-pad" />
+              <TextField label={u.occupied ? `${cap(profile.amount)} en cours (${currencyLabel})` : `${cap(profile.amount)} demandé (${currencyLabel})`} value={grouped(u.rent)} onChangeText={(t) => setUnit(i, { rent: digits(t) })} keyboardType="number-pad" />
             </View>
           </View>
           <TextField label={`Valeur de ${profile.unit.feminine ? "la" : "ce"} ${profile.unit.one} (${currencyLabel}), facultatif`} value={grouped(u.value)} onChangeText={(t) => setUnit(i, { value: digits(t) })} keyboardType="number-pad" />

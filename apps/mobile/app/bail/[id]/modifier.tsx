@@ -64,7 +64,7 @@ export default function EditLease() {
   return (
     <SubScreen title="Modifier le contrat" subtitle={view.asset.name} footer={<Button label="Enregistrer" disabled={!ok} onPress={save} />}>
       <SectionTitle>Conditions</SectionTitle>
-      <TextField label={`${cap(profile.amount)} mensuel (${currencyLabel})`} value={grouped(amount)} onChangeText={(t) => setAmount(digits(t))} keyboardType="number-pad" hint="S'applique aux prochaines échéances non payées." />
+      <TextField label={`${cap(profile.amount)} mensuel (${currencyLabel})`} value={grouped(amount)} onChangeText={(t) => setAmount(digits(t))} keyboardType="number-pad" hint="S'applique dès ce mois-ci si rien n'a encore été payé, et aux mois suivants." />
       <TextField label={`Caution (${currencyLabel})`} value={grouped(deposit)} onChangeText={(t) => setDeposit(digits(t))} keyboardType="number-pad" />
       <Text variant="rowSubtitle" tone="inkMuted" style={{ marginTop: 18 }}>
         Jour d'échéance
