@@ -1,12 +1,11 @@
 import { useState } from "react";
 import { Alert, Switch, View } from "react-native";
 import { router } from "expo-router";
-import { CURRENCIES, currencyLabel } from "@keyo/shared";
 import { color, radius } from "@keyo/tokens";
 import { initialsOf } from "@/data/selectors";
 import { session, useUser } from "@/data/session";
 import { actions, useOwnerState } from "@/data/store";
-import { Button, Chip, IconCircle, SectionTitle, SheetAction, SubScreen, Text, TextField } from "@/ui";
+import { Button, CurrencySelect, IconCircle, SectionTitle, SheetAction, SubScreen, Text, TextField } from "@/ui";
 
 /** Profil et réglages : identité, devise d'affichage, relances automatiques, données, déconnexion. */
 export default function Profile() {
@@ -50,12 +49,8 @@ export default function Profile() {
         </View>
       )}
 
-      <SectionTitle>Devise d'affichage</SectionTitle>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
-        {CURRENCIES.map((c) => (
-          <Chip key={c} active={c === user.displayCurrency} label={currencyLabel(c)} onPress={() => session.update({ displayCurrency: c })} />
-        ))}
-      </View>
+      <SectionTitle>Affichage</SectionTitle>
+      <CurrencySelect value={user.displayCurrency} onChange={(c) => session.update({ displayCurrency: c })} />
 
       <SectionTitle>Relances</SectionTitle>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 16, padding: 18, borderRadius: radius.card, backgroundColor: color.surfaceRaised, marginTop: 8 }}>

@@ -11,3 +11,4 @@ export * from "./TextField";
 export * from "./Chip";
 export * from "./Sheet";
 export * from "./Header";
+export * from "./CurrencySelect";
