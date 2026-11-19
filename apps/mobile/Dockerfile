@@ -3,8 +3,7 @@
 # Construire depuis la racine du dépôt : docker compose build mobile
 FROM node:22-alpine
 
-ENV CI=1 \
-    EXPO_NO_TELEMETRY=1
+ENV EXPO_NO_TELEMETRY=1
 RUN corepack enable
 WORKDIR /repo
 
@@ -13,7 +12,8 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc turbo.json tsconfig.
 COPY apps/mobile/package.json apps/mobile/
 COPY packages/shared/package.json packages/shared/
 COPY packages/tokens/package.json packages/tokens/
-RUN pnpm install --frozen-lockfile
+# CI=1 uniquement ici : au lancement, il couperait le rechargement à chaud.
+RUN CI=1 pnpm install --frozen-lockfile
 
 COPY packages packages
 COPY apps/mobile apps/mobile
