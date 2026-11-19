@@ -13,7 +13,7 @@ import {
   useFonts,
 } from "@expo-google-fonts/plus-jakarta-sans";
 import { color } from "@keyo/tokens";
-import { session } from "@/data/session";
+import { session, useAccess } from "@/data/session";
 import { actions } from "@/data/store";
 
 SplashScreen.preventAutoHideAsync();
@@ -22,6 +22,7 @@ session.hydrate();
 actions.hydrate();
 
 export default function RootLayout() {
+  const access = useAccess();
   const [loaded, error] = useFonts({
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
@@ -40,13 +41,31 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <StatusBar style="dark" />
+        {/* Routes protégées : si la session change (déconnexion), les écrans qui ne sont plus
+            accessibles sont retirés et l'app repart de l'écran de démarrage, qui réoriente. */}
         <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: color.surface } }}>
           <Stack.Screen name="index" options={{ animation: "none" }} />
-          <Stack.Screen name="(owner)" options={{ animation: "fade" }} />
-          <Stack.Screen name="(auth)" options={{ animation: "fade" }} />
-          <Stack.Screen name="bien/nouveau" options={{ presentation: "modal" }} />
-          <Stack.Screen name="bien/[id]/depense" options={{ presentation: "modal" }} />
-          <Stack.Screen name="bien/[id]/inviter" options={{ presentation: "modal" }} />
+          <Stack.Protected guard={access === "onboarding"}>
+            <Stack.Screen name="(auth)" options={{ animation: "fade" }} />
+          </Stack.Protected>
+          <Stack.Protected guard={access === "owner"}>
+            <Stack.Screen name="(owner)" options={{ animation: "fade" }} />
+            <Stack.Screen name="bien/nouveau" options={{ presentation: "modal" }} />
+            <Stack.Screen name="bien/[id]/index" />
+            <Stack.Screen name="bien/[id]/documents" />
+            <Stack.Screen name="bien/[id]/finances" />
+            <Stack.Screen name="bien/[id]/depense" options={{ presentation: "modal" }} />
+            <Stack.Screen name="bien/[id]/inviter" options={{ presentation: "modal" }} />
+            <Stack.Screen name="bail/[id]" />
+            <Stack.Screen name="incident/[id]" />
+            <Stack.Screen name="messages/[partyId]" />
+            <Stack.Screen name="notifications" />
+            <Stack.Screen name="recherche" />
+            <Stack.Screen name="profil" />
+          </Stack.Protected>
+          <Stack.Protected guard={access === "tenant"}>
+            <Stack.Screen name="locataire" />
+          </Stack.Protected>
         </Stack>
       </SafeAreaProvider>
     </GestureHandlerRootView>

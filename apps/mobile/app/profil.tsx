@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Alert, Switch, View } from "react-native";
-import { router } from "expo-router";
 import { color, radius } from "@keyo/tokens";
 import { initialsOf } from "@/data/selectors";
 import { session, useUser } from "@/data/session";
@@ -19,7 +18,7 @@ export default function Profile() {
   const signOut = () =>
     Alert.alert("Se déconnecter ?", "Vos données restent enregistrées sur ce téléphone.", [
       { text: "Annuler", style: "cancel" },
-      { text: "Se déconnecter", style: "destructive", onPress: () => session.signOut().then(() => router.replace("/(auth)/bienvenue")) },
+      { text: "Se déconnecter", style: "destructive", onPress: () => session.signOut() },
     ]);
 
   const reset = () =>

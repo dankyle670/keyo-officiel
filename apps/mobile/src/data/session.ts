@@ -37,11 +37,28 @@ export function useSession(): SessionState {
   );
 }
 
-/** Utilisateur connecté ; à n'appeler que dans les écrans protégés. */
+/** Espace accessible selon l'état du compte (pilote les routes protégées). */
+export type Access = "loading" | "onboarding" | "owner" | "tenant";
+export function accessOf(s: SessionState): Access {
+  if (s.status === "loading") return "loading";
+  if (s.status === "signedOut" || !s.user.role || !s.user.firstName) return "onboarding";
+  return s.user.role === "OWNER" ? "owner" : "tenant";
+}
+export const useAccess = () => accessOf(useSession());
+
+// Dernier utilisateur connu : les écrans encore affichés pendant une déconnexion ne plantent pas
+// le temps que la navigation les retire.
+let lastUser: User | undefined;
+
+/** Utilisateur connecté, pour les écrans protégés. */
 export function useUser(): User {
   const s = useSession();
-  if (s.status !== "signedIn") throw new Error("Aucun utilisateur connecté");
-  return s.user;
+  if (s.status === "signedIn") {
+    lastUser = s.user;
+    return s.user;
+  }
+  if (lastUser) return lastUser;
+  throw new Error("Aucun utilisateur connecté");
 }
 
 export const getSession = () => state;
