@@ -1,6 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { formatMoney, SPECIALIST_LABEL, type AutonomousAction, type Specialist } from "@keyo/shared";
-import { MODEL } from "../agent/agent.service.ts";
+import { advisorTool, callParams, ROUTES, type Route } from "../agent/router.ts";
 import type { ActionGate, Clock, GateOutcome } from "./gate.ts";
 import { frDate } from "./actions.ts";
 import { isActionOf, isRead, runRead, SPECIALIST_SYSTEM, specialistTools } from "./specialists.ts";
@@ -12,7 +12,6 @@ type Tool = { name: string; description: string; input_schema: { type: "object";
 type Exec = (name: string, input: unknown) => Promise<unknown>;
 
 const MAX_STEPS = 10;
-const BACKGROUND_EFFORT = (process.env.KEYO_AUTONOMOUS_EFFORT ?? "low") as "low" | "medium" | "high";
 
 /** Qui réveiller pour ce déclencheur : décidé par le code, pour ne jamais appeler Claude à vide. */
 export function wake(trigger: Trigger, s: OwnerSnapshot, today: string): { specialist: Specialist; why: string }[] {
@@ -34,7 +33,6 @@ export function wake(trigger: Trigger, s: OwnerSnapshot, today: string): { speci
   return out;
 }
 
-const fallback = () => ({ betas: ["server-side-fallback-2026-07-01"] as Anthropic.Beta.AnthropicBeta[], fallbacks: "default" as const });
 const textOf = (content: Anthropic.Beta.BetaContentBlock[]) =>
   content
     .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
@@ -91,7 +89,7 @@ export class Orchestrator {
       },
     ];
     const system = `Vous êtes le Gérant de Keyo : vous coordonnez des agents spécialisés qui gèrent les biens d'un propriétaire à la place d'une agence. Priorisez (argent dû et urgences d'abord), déléguez chaque sujet une fois au bon agent avec une consigne précise, puis rédigez pour le propriétaire un compte rendu de trois à cinq phrases, en français et au vouvoiement : ce qui a été fait, ce qui attend son accord.`;
-    const final = await this.loop(client, system, ctx, `À traiter :\n${work.map((w) => `- ${SPECIALIST_LABEL[w.specialist]} (${w.specialist}) : ${w.why}`).join("\n")}`, tools, async (name, input) => {
+    const final = await this.loop(client, ROUTES.manager(), system, ctx, `À traiter :\n${work.map((w) => `- ${SPECIALIST_LABEL[w.specialist]} (${w.specialist}) : ${w.why}`).join("\n")}`, tools, async (name, input) => {
       const { specialist, task } = (input ?? {}) as { specialist?: Specialist; task?: string };
       if (name !== "delegate" || !specialist || !allowed.includes(specialist) || !task) return { error: "Délégation invalide." };
       const report = await this.specialist(client, ownerId, runId, specialist, task, ctx);
@@ -103,7 +101,7 @@ export class Orchestrator {
 
   private specialist(client: Anthropic, ownerId: string, runId: string, sp: Specialist, task: string, ctx: string) {
     const today = this.clock().toISOString().slice(0, 10);
-    return this.loop(client, SPECIALIST_SYSTEM(sp), ctx, task, specialistTools(sp), async (name, input) => {
+    return this.loop(client, ROUTES.specialist(), SPECIALIST_SYSTEM(sp), ctx, task, specialistTools(sp), async (name, input) => {
       const s = this.store.getSnapshot(ownerId);
       if (!s) return { error: "Données indisponibles." };
       if (isRead(name) && specialistTools(sp).some((t) => t.name === name)) return runRead(name, s, today);
@@ -113,16 +111,14 @@ export class Orchestrator {
   }
 
   /** Boucle d'outils : appelle Claude, exécute les outils demandés, renvoie les résultats, jusqu'à la réponse finale. */
-  private async loop(client: Anthropic, system: string, ctx: string, prompt: string, tools: Tool[], exec: Exec): Promise<string> {
+  private async loop(client: Anthropic, route: Route, system: string, ctx: string, prompt: string, tools: Tool[], exec: Exec): Promise<string> {
     const messages: Msg[] = [{ role: "user", content: prompt }];
-    const cached = tools.map((t, i) => (i === tools.length - 1 ? { ...t, cache_control: { type: "ephemeral" as const } } : t));
+    const cached = [...advisorTool(route, 1), ...tools.map((t, i) => (i === tools.length - 1 ? { ...t, cache_control: { type: "ephemeral" as const } } : t))];
     for (let step = 0; step < MAX_STEPS; step++) {
       const res = await client.beta.messages.create({
-        ...fallback(),
-        model: MODEL,
+        ...callParams(route),
         max_tokens: 8000,
         thinking: { type: "adaptive" },
-        output_config: { effort: BACKGROUND_EFFORT },
         system: [
           { type: "text", text: system, cache_control: { type: "ephemeral" } },
           { type: "text", text: ctx },

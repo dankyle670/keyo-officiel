@@ -70,6 +70,7 @@ pnpm --filter @keyo/api dev   # API hors conteneur
 ## Agent Keyo
 
 - Remplace l'agence de gestion : l'agent consulte et agit depuis le chat (écrit ou dicté). Outils définis une seule fois dans `packages/shared/src/agent.ts` (schémas Zod), décrits à Claude par `apps/api`, exécutés sur le téléphone par `apps/mobile/src/agent/tools.ts`.
+- Modèle choisi par le code selon la tâche (`apps/api/src/agent/router.ts`) : Haiku pour les salutations, consultations simples et spécialistes de fond ; Sonnet pour la plupart des demandes et le Gérant ; Opus pour la fiscalité, le droit, la valeur, le patrimoine, les PDF et les analyses. Une confirmation garde le modèle de la demande précédente. Haiku et Sonnet peuvent consulter Opus d'eux-mêmes (outil `advisor`).
 - La clé Claude ne quitte jamais `apps/api`. Sans clé, `/agent/status` renvoie `demo` et l'app utilise `src/agent/demo.ts`.
 - Toute modification passe par une carte de confirmation (réglage `agentConfirm` dans le Profil).
 - Chat (`app/(owner)/assistant.tsx`, `src/agent/conversation.ts`) : plusieurs conversations gardées sur le téléphone, arrêt, régénération, modification d'un message (le champ `hist` d'un message relie le fil à l'historique Claude), réponses mises en forme (`src/ui/Markdown.tsx`). Menu « + » : pièces jointes, connecteurs, réglages rapides. Pas de dépendance native ajoutée : copier passe par la feuille de partage. Les conversations sont aussi gardées côté serveur (`apps/api/src/conversations/`, Redis, sans les photos ni PDF) ; relecture : `pnpm --filter @keyo/api conversations [id]`.

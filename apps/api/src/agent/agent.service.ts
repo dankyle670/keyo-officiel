@@ -4,11 +4,9 @@ import { Inject, Injectable } from "@nestjs/common";
 import { z } from "zod";
 import { agentToolSchemas, type AuditFinding } from "@keyo/shared";
 import { AGENT_SYSTEM, OPS_SYSTEM } from "./prompts.ts";
+import { advisorTool, callParams, MODELS, ROUTES, routeTurn } from "./router.ts";
 
 export const ANTHROPIC = Symbol("ANTHROPIC");
-export const MODEL = process.env.KEYO_AGENT_MODEL ?? "claude-opus-5-5";
-type Effort = "low" | "medium" | "high";
-const EFFORT = (process.env.KEYO_AGENT_EFFORT ?? "medium") as Effort;
 
 const WEB_SEARCH = { type: "web_search_20260209" as const, name: "web_search" as const, max_uses: 5 };
 
@@ -40,7 +38,6 @@ export const OpsReview = z.object({
 export type OpsReview = z.infer<typeof OpsReview>;
 
 // Repli côté serveur si le modèle décline une requête (catégorie de refus gérée par l'API).
-const fallback = () => ({ betas: ["server-side-fallback-2026-07-01"] as Anthropic.Beta.AnthropicBeta[], fallbacks: "default" as const });
 
 const contextBlock = (c: TurnContext) =>
   `Date du jour : ${c.today}. Devise d'affichage : ${c.currency}.${c.ownerName ? ` Propriétaire : ${c.ownerName}.` : ""}`;
@@ -53,7 +50,7 @@ export class AgentService {
 
   /** « claude » si une clé est configurée ; sinon l'app bascule sur son mode démo local. */
   status() {
-    return { mode: this.client ? ("claude" as const) : ("demo" as const), model: this.client ? MODEL : undefined };
+    return { mode: this.client ? ("claude" as const) : ("demo" as const), model: this.client ? `auto (${Object.values(MODELS).map((m) => m.model).join(", ")})` : undefined };
   }
 
   /**
@@ -63,13 +60,13 @@ export class AgentService {
   async turn(body: z.infer<typeof TurnBody>) {
     if (!this.client) return null;
     // Recherche web (outil serveur de Claude) : trouver des artisans ou des repères locaux.
-    const tools = [WEB_SEARCH, ...this.tools.map((t, i) => (i === this.tools.length - 1 ? { ...t, cache_control: { type: "ephemeral" as const } } : t))];
+    // Le code choisit le modèle selon la demande ; Haiku et Sonnet peuvent consulter Opus (advisor).
+    const r = routeTurn(body.messages as Parameters<typeof routeTurn>[0]);
+    const tools = [WEB_SEARCH, ...advisorTool(r), ...this.tools.map((t, i) => (i === this.tools.length - 1 ? { ...t, cache_control: { type: "ephemeral" as const } } : t))];
     const res = await this.client.beta.messages.create({
-      ...fallback(),
-      model: MODEL,
+      ...callParams(r),
       max_tokens: 16000,
       thinking: { type: "adaptive" },
-      output_config: { effort: EFFORT },
       system: [
         { type: "text", text: AGENT_SYSTEM, cache_control: { type: "ephemeral" } },
         { type: "text", text: contextBlock(body.context) },
@@ -77,7 +74,7 @@ export class AgentService {
       tools,
       messages: body.messages as Anthropic.Beta.BetaMessageParam[],
     });
-    return { content: res.content, stop_reason: res.stop_reason, model: res.model };
+    return { content: res.content, stop_reason: res.stop_reason, model: res.model, tier: r.tier, reason: r.reason };
   }
 
   /** Sous-agent « ops » : priorise les points du contrôle de gestion, sans en inventer. */
@@ -85,10 +82,9 @@ export class AgentService {
     if (!this.client) return null;
     if (body.findings.length === 0) return { verdict: "Tout est en ordre : aucun point à traiter.", priorities: [] };
     const res = await this.client.beta.messages.parse({
-      ...fallback(),
-      model: MODEL,
+      ...callParams(ROUTES.ops()),
       max_tokens: 8000,
-      output_config: { effort: "low", format: betaZodOutputFormat(OpsReview) },
+      output_config: { effort: ROUTES.ops().effort, format: betaZodOutputFormat(OpsReview) },
       system: [
         { type: "text", text: OPS_SYSTEM, cache_control: { type: "ephemeral" } },
         { type: "text", text: contextBlock(body.context) },

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type Anthropic from "@anthropic-ai/sdk";
-import { AgentService, MODEL } from "./agent.service.ts";
+import { AgentService } from "./agent.service.ts";
 
 const context = { today: "2026-11-19", currency: "XOF", ownerName: "Daniel" };
 
@@ -23,7 +23,7 @@ test("sans clé : mode démo, aucun appel", async () => {
 });
 
 test("tour : modèle, outils mis en cache, repli serveur, historique transmis tel quel", async () => {
-  const { client, calls } = fakeClient({ content: [{ type: "text", text: "Bonjour" }], stop_reason: "end_turn", model: MODEL });
+  const { client, calls } = fakeClient({ content: [{ type: "text", text: "Bonjour" }], stop_reason: "end_turn", model: "claude-sonnet-5-5" });
   const svc = new AgentService(client);
   const history = [
     { role: "user" as const, content: "Mes loyers ?" },
@@ -33,7 +33,11 @@ test("tour : modèle, outils mis en cache, repli serveur, historique transmis te
   const res = await svc.turn({ messages: history, context });
   assert.equal(res?.stop_reason, "end_turn");
   const p = calls[0]!;
-  assert.equal(p.model, "claude-opus-5-5");
+  // « Mes loyers ? » : demande courante, Sonnet, qui peut consulter Opus.
+  assert.equal(p.model, "claude-sonnet-5-5");
+  assert.equal(res?.tier, "standard");
+  assert.ok(p.tools.some((t: any) => t.type === "advisor_20260301" && t.model === "claude-opus-5-5"));
+  assert.ok(p.betas.includes("advisor-tool-2026-03-01"));
   assert.deepEqual(p.thinking, { type: "adaptive" });
   assert.equal(p.fallbacks, "default");
   assert.deepEqual(p.messages, history);

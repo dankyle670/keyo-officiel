@@ -180,6 +180,7 @@ async function runClaude(steps = 0): Promise<void> {
       const q = (b.input as { query?: string } | undefined)?.query;
       push({ id: id(), kind: "activity", label: `Recherche sur le web${q ? ` : ${q}` : ""}`, ok: true });
     }
+    if (b.type === "server_tool_use" && b.name === "advisor") push({ id: id(), kind: "activity", label: "Avis demandé au modèle expert", ok: true });
   }
   // Recherche longue mise en pause par le serveur : on renvoie tel quel pour qu'il reprenne.
   if (res.stop_reason === "pause_turn") {

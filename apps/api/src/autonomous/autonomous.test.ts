@@ -185,8 +185,12 @@ test("avec Claude : plusieurs domaines = le Gérant délègue", async () => {
   const { orchestrator } = setup(at("2026-11-19T10:00:00Z"), client);
   const run = await orchestrator.run(OWNER, "MANUAL");
   assert.equal(run.summary, "Compte rendu du Gérant.");
-  assert.equal(calls[0]!.tools[0].name, "delegate");
-  assert.deepEqual(calls[0]!.tools[0].input_schema.properties.specialist.enum, ["COLLECTION", "RELETTING", "COMPLIANCE"]);
+  // Gérant sur Sonnet, spécialistes sur Haiku ; tous deux peuvent consulter Opus.
+  assert.equal(calls[0]!.model, "claude-sonnet-5-5");
+  assert.equal(calls[1]!.model, "claude-haiku-5-5");
+  assert.equal(calls[0]!.tools[0].type, "advisor_20260301");
+  const delegate = calls[0]!.tools.find((t: any) => t.name === "delegate");
+  assert.deepEqual(delegate.input_schema.properties.specialist.enum, ["COLLECTION", "RELETTING", "COMPLIANCE"]);
   assert.match(calls[1]!.system[0].text, /Encaissement/);
 });
 
