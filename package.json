@@ -1,0 +1,17 @@
+{
+  "name": "keyo",
+  "private": true,
+  "packageManager": "pnpm@8.15.1",
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "tokens": "pnpm --filter @keyo/tokens generate",
+    "mobile": "pnpm --filter @keyo/mobile start"
+  },
+  "devDependencies": {
+    "turbo": "^2.11.13",
+    "typescript": "~5.9.3"
+  }
+}
