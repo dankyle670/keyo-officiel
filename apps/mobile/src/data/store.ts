@@ -491,6 +491,31 @@ export const actions = {
    * Ouvre (ou complète) une demande d'intervention et sollicite trois artisans de l'annuaire.
    * Données fictives : côté API, les artisans répondent depuis leur propre accès.
    */
+  /** Artisan ajouté au carnet (saisi ou trouvé par l'agent sur le web : contact non vérifié). */
+  addCraftsman(input: { name: string; trade: string; phone: string; city?: string; source?: string }): string {
+    const existing = state.parties.find((p) => p.role === "CRAFTSMAN" && p.phone.replace(/\D/g, "") === input.phone.replace(/\D/g, ""));
+    if (existing) return existing.id;
+    const id = newId("p");
+    setState((s) => ({ ...s, parties: [...s.parties, { id, role: "CRAFTSMAN", firstName: input.name, lastName: "", phone: input.phone, trade: input.trade, city: input.city, source: input.source }] }));
+    return id;
+  },
+
+  /**
+   * Demande de devis adressée à des artisans du carnet : la demande leur est consignée et l'on
+   * attend leurs réponses (pas de devis inventé).
+   */
+  requestQuotesFrom(input: { assetId: string; eventId?: string; title: string; description: string; category: string; urgency: "LOW" | "MEDIUM" | "HIGH" }, partyIds: string[], text: string): string {
+    const eventId = input.eventId ?? newId("e");
+    setState((s) => {
+      const messages = [...s.messages, ...partyIds.map((partyId) => ({ id: newId("m"), partyId, from: "OWNER" as const, text, at: nowIso() }))];
+      const existing = s.events.find((e) => e.id === eventId);
+      if (existing) return { ...s, messages, events: s.events.map((e) => (e.id === eventId ? { ...e, status: "QUOTES_PENDING" } : e)) };
+      const event: AssetEvent = { id: eventId, assetId: input.assetId, kind: "INCIDENT", category: input.category, title: input.title, description: input.description, urgency: input.urgency, status: "QUOTES_PENDING", reportedAt: nowIso(), photos: [], quotes: [] };
+      return { ...s, messages, events: [...s.events, event] };
+    });
+    return eventId;
+  },
+
   requestQuotes(input: { assetId: string; eventId?: string; title: string; description: string; category: string; urgency: "LOW" | "MEDIUM" | "HIGH" }): string {
     const eventId = input.eventId ?? newId("e");
     const base = QUOTE_BASE[input.category] ?? 40_000;
@@ -498,7 +523,8 @@ export const actions = {
     const scale = currency === "XOF" ? 1 : 0.15; // ordre de grandeur en centimes pour l'euro
     const quotes = ARTISANS.map((a, i) => ({
       id: newId("q"),
-      provider: `${a.name}, ${CATEGORY_TRADE[input.category] ?? "artisan"}`,
+      // Devis de démonstration : marqués comme tels partout où ils s'affichent.
+      provider: `${a.name}, ${CATEGORY_TRADE[input.category] ?? "artisan"} (démo)`,
       rating: a.rating,
       slot: `${addDays(today(), i + 1)}T${["09", "14", "10"][i]}:00:00.000Z`,
       amount: { amount: Math.round((base * a.factor * scale) / 500) * 500, currency },

@@ -248,10 +248,12 @@ export const AGENT_TOOLS = {
     kind: "write",
     risk: "low",
     label: "Demande de devis",
-    description: "Ouvre une demande d'intervention et sollicite des devis auprès d'artisans de l'annuaire. Pour un incident existant, passer eventId.",
+    description:
+      "Ouvre une demande d'intervention et sollicite des devis. Avec craftsmanPartyIds (artisans du carnet, voir get_craftsmen et add_craftsman), la demande leur est adressée et l'on attend leurs réponses. Sans artisan désigné, Keyo produit trois devis de DÉMONSTRATION (fictifs) : présentez-les toujours comme tels. Pour un incident existant, passer eventId.",
     input: z.object({
       assetId: z.string(),
       eventId: z.string().optional(),
+      craftsmanPartyIds: z.array(z.string()).max(5).optional(),
       title: z.string().min(1),
       description: z.string(),
       category: z.enum(["PLUMBING", "ELECTRICITY", "AIR_CONDITIONING", "PAINTING", "LOCKSMITH", "SEPTIC", "OTHER"]),
@@ -292,6 +294,26 @@ export const AGENT_TOOLS = {
       managerPartyId: z.string().optional(),
       managerName: z.string().optional(),
       managerPhone: z.string().optional(),
+    }),
+  },
+  get_craftsmen: {
+    kind: "read",
+    label: "Consultation des artisans",
+    description: "Artisans enregistrés par le propriétaire (nom, métier, ville, téléphone, source du contact). À consulter avant de chercher sur le web.",
+    input: z.object({}),
+  },
+  add_craftsman: {
+    kind: "write",
+    risk: "low",
+    label: "Enregistrement d'un artisan",
+    description:
+      "Enregistre un artisan dans le carnet du propriétaire, par exemple trouvé avec la recherche web. Donnez le nom (entreprise ou personne), le métier, la ville, le téléphone au format international et la source (adresse de la page). Un contact trouvé sur le web n'est pas vérifié : dites-le au propriétaire.",
+    input: z.object({
+      name: z.string().min(2).max(80),
+      trade: z.string().min(2).max(60).describe("Métier : plombier, électricien, frigoriste…"),
+      city: z.string().max(60).optional(),
+      phone: z.string().regex(/^\+\d{8,15}$/).describe("Téléphone au format international, par exemple +2250700000000"),
+      source: z.string().max(300).optional().describe("Adresse de la page où le contact a été trouvé"),
     }),
   },
   get_capabilities: {

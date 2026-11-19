@@ -44,6 +44,8 @@ export const CAPABILITY_GROUPS: { domain: string; entries: Entry[] }[] = [
     domain: "Incidents et entretien",
     entries: [
       { what: "Suivre les incidents et leurs devis", tool: "get_incidents" },
+      { what: "Consulter votre carnet d'artisans", tool: "get_craftsmen" },
+      { what: "Trouver des artisans près de vos biens sur Internet et les ajouter au carnet", tool: "add_craftsman" },
       { what: "Qualifier un incident signalé (urgence, catégorie)", auto: "triage_incident" },
       { what: "Demander des devis aux artisans", tool: "request_quotes", channels: ["WHATSAPP", "SMS"] },
       { what: "Accepter un devis (dans la limite de votre plafond quand j'agis seul)", tool: "approve_quote" },

@@ -10,6 +10,8 @@ export const MODEL = process.env.KEYO_AGENT_MODEL ?? "claude-opus-5-5";
 type Effort = "low" | "medium" | "high";
 const EFFORT = (process.env.KEYO_AGENT_EFFORT ?? "medium") as Effort;
 
+const WEB_SEARCH = { type: "web_search_20260209" as const, name: "web_search" as const, max_uses: 5 };
+
 export const TurnContext = z.object({
   today: z.iso.date(),
   ownerName: z.string().max(80).optional(),
@@ -60,7 +62,8 @@ export class AgentService {
    */
   async turn(body: z.infer<typeof TurnBody>) {
     if (!this.client) return null;
-    const tools = this.tools.map((t, i) => (i === this.tools.length - 1 ? { ...t, cache_control: { type: "ephemeral" as const } } : t));
+    // Recherche web (outil serveur de Claude) : trouver des artisans ou des repères locaux.
+    const tools = [WEB_SEARCH, ...this.tools.map((t, i) => (i === this.tools.length - 1 ? { ...t, cache_control: { type: "ephemeral" as const } } : t))];
     const res = await this.client.beta.messages.create({
       ...fallback(),
       model: MODEL,

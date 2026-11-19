@@ -66,6 +66,10 @@ export const Party = z.object({
   access: z.enum(["VIEW", "MANAGE"]).optional(),
   invitedAt: IsoDateTime.optional(),
   joinedAt: IsoDateTime.optional(),
+  /** Artisan : métier, ville, et d'où vient le contact (recherche web, recommandation…). */
+  trade: z.string().optional(),
+  city: z.string().optional(),
+  source: z.string().optional(),
 });
 export type Party = z.infer<typeof Party>;
 

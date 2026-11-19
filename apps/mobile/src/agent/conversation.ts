@@ -174,6 +174,18 @@ async function runClaude(steps = 0): Promise<void> {
   const text = res.content.filter((b): b is { type: "text"; text: string } => b.type === "text").map((b) => b.text).join("\n");
   sayAgent(text);
   if (res.stop_reason === "max_tokens") push({ id: id(), kind: "error", text: "Réponse interrompue : elle était trop longue." });
+  // Recherches sur le web (outil serveur de Claude) : affichées comme les autres activités.
+  for (const b of res.content) {
+    if (b.type === "server_tool_use" && b.name === "web_search") {
+      const q = (b.input as { query?: string } | undefined)?.query;
+      push({ id: id(), kind: "activity", label: `Recherche sur le web${q ? ` : ${q}` : ""}`, ok: true });
+    }
+  }
+  // Recherche longue mise en pause par le serveur : on renvoie tel quel pour qu'il reprenne.
+  if (res.stop_reason === "pause_turn") {
+    await runClaude(steps + 1);
+    return;
+  }
   if (res.stop_reason !== "tool_use") return;
 
   const uses = res.content.filter((b): b is { type: "tool_use"; id: string; name: string; input: Record<string, unknown> } => b.type === "tool_use");

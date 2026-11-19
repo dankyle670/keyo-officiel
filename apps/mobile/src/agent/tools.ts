@@ -37,6 +37,9 @@ type Executor<N extends AgentToolName> = (input: AgentToolInput<N>) => Promise<T
 const ok = (result: unknown, summary: string): ToolOutcome => ({ ok: true, result, summary });
 const fail = (error: string): ToolOutcome => ({ ok: false, error });
 
+/** Les messages ne partent pas encore réellement : aucun connecteur WhatsApp ou SMS n'est branché à l'app. */
+const SIMULATED_NOTE = "Envoi simulé : le message est consigné dans Keyo mais n'est PAS parti chez la personne ; il partira quand WhatsApp ou SMS sera connecté. Ne dites jamais qu'il a été envoyé ou reçu.";
+
 const EXECUTORS: { [N in AgentToolName]: Executor<N> } = {
   get_portfolio() {
     const s = getOwnerState();
@@ -390,23 +393,50 @@ const EXECUTORS: { [N in AgentToolName]: Executor<N> } = {
       FINAL: `Bonjour ${p?.firstName ?? ""}, dernier rappel avant mesures : le loyer de ${amount} reste impayé. Merci de régulariser sous 48 heures.`,
     }[tone];
     actions.sendMessage(g.partyId, text);
-    return ok({ sent: true, text, channels: getSettings().reminderChannels }, `Relance envoyée à ${p?.firstName ?? "l'occupant"}`);
+    return ok({ delivered: false, simulated: true, note: SIMULATED_NOTE, text, channels: getSettings().reminderChannels }, `Relance consignée pour ${p?.firstName ?? "l'occupant"} (envoi simulé)`);
   },
 
   send_message({ partyId, text }) {
     if (!getOwnerState().parties.some((p) => p.id === partyId)) return fail(`Interlocuteur introuvable : ${partyId}`);
     actions.sendMessage(partyId, text);
-    return ok({ sent: true }, `Message envoyé à ${partyName(getOwnerState(), partyId)}`);
+    return ok({ delivered: false, simulated: true, note: SIMULATED_NOTE }, `Message consigné pour ${partyName(getOwnerState(), partyId)} (envoi simulé)`);
   },
 
-  request_quotes(input) {
+  request_quotes({ craftsmanPartyIds, ...input }) {
     if (!assetName(input.assetId)) return fail(`Bien introuvable : ${input.assetId}`);
+    if (craftsmanPartyIds?.length) {
+      const s = getOwnerState();
+      const pros = craftsmanPartyIds.map((id) => s.parties.find((p) => p.id === id && p.role === "CRAFTSMAN"));
+      if (pros.some((p) => !p)) return fail("Seuls les artisans du carnet peuvent être sollicités (voir get_craftsmen, add_craftsman).");
+      const text = `Bonjour, Keyo vous contacte pour le compte d'un propriétaire : « ${input.title} » à ${assetName(input.assetId)}. ${input.description} Pouvez-vous nous transmettre un devis et un créneau ?`;
+      const eventId = actions.requestQuotesFrom(input, craftsmanPartyIds, text);
+      return ok(
+        { eventId, requestedFrom: pros.map((p) => p!.firstName), quotes: [], delivered: false, simulated: true, note: `${SIMULATED_NOTE} Aucun devis n'est encore arrivé : les artisans répondront après réception.` },
+        `Demande consignée pour ${pros.length} artisan${pros.length > 1 ? "s" : ""} (envoi simulé)`,
+      );
+    }
     const eventId = actions.requestQuotes(input);
     const e = getOwnerState().events.find((x) => x.id === eventId)!;
     return ok(
-      { eventId, quotes: e.quotes.map((q) => ({ quoteId: q.id, provider: q.provider, rating: q.rating, amount: formatMoney(q.amount), slot: q.slot })) },
-      `${e.quotes.length} devis reçus`,
+      {
+        eventId,
+        demo: true,
+        note: "DEVIS DE DÉMONSTRATION, FICTIFS : aucun artisan n'a été contacté. Présentez-les comme des exemples ; pour de vrais devis, cherchez des artisans (web_search), ajoutez-les au carnet (add_craftsman) puis sollicitez-les.",
+        quotes: e.quotes.map((q) => ({ quoteId: q.id, provider: q.provider, rating: q.rating, amount: formatMoney(q.amount), slot: q.slot })),
+      },
+      `${e.quotes.length} devis de démonstration (fictifs)`,
     );
+  },
+  get_craftsmen() {
+    const list = getOwnerState().parties.filter((p) => p.role === "CRAFTSMAN");
+    return ok(
+      list.map((p) => ({ partyId: p.id, name: `${p.firstName} ${p.lastName}`.trim(), trade: p.trade, city: p.city, phone: p.phone, source: p.source ?? "saisi par le propriétaire" })),
+      `${list.length} artisan${list.length > 1 ? "s" : ""} dans le carnet`,
+    );
+  },
+  add_craftsman(input) {
+    const id = actions.addCraftsman(input);
+    return ok({ partyId: id, verified: false }, `${input.name} ajouté au carnet`);
   },
 
   approve_quote({ eventId, quoteId }) {
@@ -560,8 +590,14 @@ export function describeAction(name: string, input: Record<string, unknown>): st
     }
     case "send_message":
       return `Envoyer à ${partyName(s, String(input.partyId))} : « ${input.text} »`;
-    case "request_quotes":
-      return `Demander trois devis pour « ${input.title} » à ${a}.`;
+    case "request_quotes": {
+      const ids = (input.craftsmanPartyIds as string[] | undefined) ?? [];
+      return ids.length
+        ? `Demander un devis pour « ${input.title} » (${a}) à ${ids.map((id) => partyName(s, id)).join(", ")}.`
+        : `Produire trois devis de démonstration pour « ${input.title} » (${a}).`;
+    }
+    case "add_craftsman":
+      return `Ajouter ${input.name} (${input.trade}${input.city ? `, ${input.city}` : ""}, ${input.phone}) à votre carnet d'artisans.`;
     case "approve_quote": {
       const e = s.events.find((x) => x.id === input.eventId);
       const q = e?.quotes.find((x) => x.id === input.quoteId);
