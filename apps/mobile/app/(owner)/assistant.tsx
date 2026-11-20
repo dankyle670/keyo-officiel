@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ComponentRef } from "react";
-import { Alert, Animated, Easing, Image, KeyboardAvoidingView, Linking, Pressable, ScrollView, Share, TextInput, View } from "react-native";
+import { Alert, Animated, Easing, Image, KeyboardAvoidingView, Pressable, ScrollView, Share, TextInput, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -29,11 +29,20 @@ import {
   Wallet,
   Workflow,
   Globe,
+  Building,
+  CalendarClock,
+  ChartColumn,
+  Gauge,
+  MessageSquare,
+  Scale,
+  Search,
+  Wrench,
   X,
   type LucideIcon,
 } from "lucide-react-native";
 import { color, fontFamily, radius } from "@keyo/tokens";
 import { pickImages, pickPdf, type Attachment } from "@/agent/attachments";
+import { Sources } from "@/agent/Sources";
 import { conversation, speak, useConversation, type AttachmentRef, type FeedItem } from "@/agent/conversation";
 import { autonomousApi, type ConnectorInfo } from "@/autonomous/api";
 import { KeyoMark } from "@/brand/Logo";
@@ -50,14 +59,6 @@ const SUGGESTIONS: { icon: LucideIcon; title: string; prompt: string }[] = [
 
 /** Copier passe par la feuille de partage du système, qui propose « Copier ». */
 const share = (text: string) => void Share.share({ message: text }).catch(() => undefined);
-const domainOf = (url: string) => {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return url;
-  }
-};
-
 const clean = (t: string) =>
   t
     .split("\n")
@@ -529,6 +530,23 @@ function FileChip({ file, onRemove }: { file: Attachment | AttachmentRef; onRemo
 }
 
 type Activity = Extract<FeedItem, { kind: "activity" }>;
+
+/** Icône d'une étape, selon l'outil appelé (comme les étapes de Claude). */
+function stepIcon(a: { tool?: string; label: string }): LucideIcon {
+  const t = a.tool ?? (/^Recherche sur le web/.test(a.label) ? "web_search" : "");
+  if (t === "web_search") return Globe;
+  if (/rents|reminder|payment_accounts/.test(t)) return Wallet;
+  if (/finances|monthly_report|expense/.test(t)) return ChartColumn;
+  if (/valuation|appraisal|asset_value|patrimony|family/.test(t)) return Scale;
+  if (/document/.test(t)) return FileText;
+  if (/compliance/.test(t)) return ShieldCheck;
+  if (/incident|maintenance|quote|craftsm|mission/.test(t)) return Wrench;
+  if (/message|invite/.test(t)) return MessageSquare;
+  if (/passport/.test(t)) return Gauge;
+  if (/autonom/.test(t)) return CalendarClock;
+  if (/portfolio|create_asset|update_unit|update_lease/.test(t)) return Building;
+  return Search;
+}
 type Block = { kind: "item"; item: FeedItem } | { kind: "steps"; id: string; items: Activity[] };
 
 /** Les étapes consécutives (outils, recherches) sont regroupées sur une seule ligne repliable. */
@@ -592,6 +610,7 @@ function Steps({ items, live }: { items: Activity[]; live: boolean }) {
   const failed = items.some((a) => !a.ok);
   const single = items.length === 1;
   const Chevron = open ? ChevronDown : ChevronRight;
+  const LastIcon = stepIcon(items[items.length - 1]!);
   return (
     <View style={{ marginTop: 12 }}>
       <Pressable
@@ -600,22 +619,31 @@ function Steps({ items, live }: { items: Activity[]; live: boolean }) {
         accessibilityState={single ? undefined : { expanded: open }}
         style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", maxWidth: "100%", opacity: pressed ? 0.6 : 1 })}
       >
-        {failed ? <CircleAlert size={15} strokeWidth={1.8} color={color.danger} /> : <Check size={15} strokeWidth={2} color={color.mintDeep} />}
+        {failed ? <CircleAlert size={15} strokeWidth={1.8} color={color.danger} /> : live ? <LastIcon size={15} strokeWidth={1.8} color={color.inkMuted} /> : <Check size={15} strokeWidth={2} color={color.mintDeep} />}
         <Text variant="caption" tone="inkMuted" numberOfLines={1} style={{ flexShrink: 1, fontFamily: fontFamily.semibold }}>
           {single ? items[0]!.label : `${items.length} étapes${live || open ? "" : ` · ${items[items.length - 1]!.label}`}`}
         </Text>
         {!single && <Chevron size={15} strokeWidth={1.8} color={color.inkMuted} />}
       </Pressable>
       {open && !single && (
-        <View style={{ marginTop: 8, marginLeft: 7, paddingLeft: 13, borderLeftWidth: 1.5, borderLeftColor: color.line, gap: 7 }}>
-          {items.map((a) => (
-            <View key={a.id} style={{ flexDirection: "row", gap: 6, alignItems: "flex-start" }}>
-              <View style={{ width: 7, height: 7, borderRadius: 7, marginTop: 5, backgroundColor: a.ok ? color.dotPaid : color.dotDanger }} />
-              <Text variant="caption" tone="inkMuted" style={{ flex: 1 }}>
-                {a.label}
-              </Text>
-            </View>
-          ))}
+        <View style={{ marginTop: 10, gap: 0 }}>
+          {items.map((a, i) => {
+            const Icon = stepIcon(a);
+            return (
+              <View key={a.id} style={{ flexDirection: "row", gap: 10, alignItems: "stretch" }}>
+                {/* Pastille de l'étape, reliée à la suivante par un trait fin. */}
+                <View style={{ width: 26, alignItems: "center" }}>
+                  <View style={{ width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: a.ok ? color.surfaceSoft : color.surfaceRaised, borderWidth: a.ok ? 0 : 1, borderColor: color.dotDanger }}>
+                    <Icon size={14} strokeWidth={1.8} color={a.ok ? color.ink : color.danger} />
+                  </View>
+                  {i < items.length - 1 ? <View style={{ flex: 1, width: 1.5, minHeight: 8, backgroundColor: color.line }} /> : null}
+                </View>
+                <Text variant="caption" tone={a.ok ? "inkMuted" : "danger"} style={{ flex: 1, paddingTop: 4, paddingBottom: i < items.length - 1 ? 10 : 0 }}>
+                  {a.label}
+                </Text>
+              </View>
+            );
+          })}
         </View>
       )}
     </View>
@@ -676,25 +704,8 @@ function AgentMessage({ item, busy, isLastAgent, animate, grouped }: { item: Ext
           <Text variant="rowTitle">{item.link.label}</Text>
         </Pressable>
       )}
-      {done && item.web?.length ? (
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-          {item.web.map((w, i) => (
-            <Pressable
-              key={w.url}
-              onPress={() => void Linking.openURL(w.url).catch(() => undefined)}
-              accessibilityRole="link"
-              accessibilityLabel={`Source ${i + 1} : ${w.title}`}
-              style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 6, maxWidth: "100%", height: 32, paddingHorizontal: 12, borderRadius: 999, backgroundColor: color.surfaceSoft, opacity: pressed ? 0.7 : 1 })}
-            >
-              <Globe size={14} strokeWidth={1.8} color={color.inkMuted} />
-              <Text variant="caption" tone="ink" numberOfLines={1} style={{ maxWidth: 220 }}>
-                {domainOf(w.url)}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      ) : null}
-      {done && sources ? (
+      {done && item.web?.length ? <Sources web={item.web} /> : null}
+      {done && sources && !item.web?.length ? (
         <Text variant="caption" tone="inkMuted" numberOfLines={2}>
           {sources}
         </Text>
@@ -756,11 +767,17 @@ function Item({
       return null;
     case "proposal": {
       const pending = item.status === "pending";
+      const ActionIcon_ = stepIcon({ tool: item.name, label: "" });
       return (
         <View style={{ marginTop: 14, backgroundColor: color.surfaceRaised, borderRadius: radius.card, padding: 16, gap: 12, borderWidth: 1.5, borderColor: pending ? color.mint : color.line }}>
-          <Text variant="caption" tone="inkMuted" style={{ fontFamily: fontFamily.bold }}>
-            {pending ? "Votre accord" : item.status === "done" ? "Fait" : item.status === "declined" ? "Refusé" : "Échec"}
-          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <View style={{ width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: pending ? color.mintTint : color.surfaceSoft }}>
+              <ActionIcon_ size={16} strokeWidth={1.8} color={color.ink} />
+            </View>
+            <Text variant="caption" tone="inkMuted" style={{ fontFamily: fontFamily.bold }}>
+              {pending ? "Votre accord" : item.status === "done" ? "Fait" : item.status === "declined" ? "Refusé" : "Échec"}
+            </Text>
+          </View>
           <Text variant="rowTitle">{item.description}</Text>
           {pending ? (
             <View style={{ flexDirection: "row", gap: 8 }}>

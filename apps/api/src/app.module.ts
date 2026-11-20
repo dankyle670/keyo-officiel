@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { Module } from "@nestjs/common";
 import { AgentController } from "./agent/agent.controller.ts";
+import { ExportController } from "./export/export.controller.ts";
 import { AgentService, ANTHROPIC } from "./agent/agent.service.ts";
 import { AutonomousController } from "./autonomous/autonomous.controller.ts";
 import { ConnectorRegistry } from "./autonomous/connectors.ts";
@@ -25,7 +26,7 @@ import { PaymentAccountsService } from "./payments/service.ts";
 import { MemoryPaymentAccountStore, RedisPaymentAccountStore } from "./payments/store.ts";
 
 @Module({
-  controllers: [AgentController, AutonomousController, ConversationsController, PaymentAccountsController, BillingController],
+  controllers: [AgentController, AutonomousController, ConversationsController, PaymentAccountsController, BillingController, ExportController],
   providers: [
     AgentService,
     // Sans clé, l'agent répond en mode démo (côté app) : rien ne casse en développement.

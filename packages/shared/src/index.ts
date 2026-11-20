@@ -15,3 +15,4 @@ export * from "./capabilities.ts";
 export * from "./model-tiers.ts";
 export * from "./payment-accounts.ts";
 export * from "./billing.ts";
+export * from "./speech.ts";

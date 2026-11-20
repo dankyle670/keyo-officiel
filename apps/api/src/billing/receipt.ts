@@ -1,22 +1,10 @@
 import type { InvoiceRec } from "./store.ts";
+import { encode, textWidth } from "../export/pdf.ts";
 
 /**
  * Reçu de paiement de l'abonnement, en PDF d'une page, sans dépendance : texte en Helvetica
  * (encodage WinAnsi, qui couvre les accents français et le signe euro).
  */
-const WIN_ANSI_EXTRA: Record<string, number> = { "€": 0x80, "’": 0x92, "–": 0x96, "—": 0x97, "•": 0x95, "\u00a0": 0x20, "\u202f": 0x20 };
-
-function encode(text: string): string {
-  let out = "";
-  for (const ch of text) {
-    const code = WIN_ANSI_EXTRA[ch] ?? ch.charCodeAt(0);
-    const c = code > 255 ? 0x3f : code;
-    const s = String.fromCharCode(c);
-    out += s === "(" || s === ")" || s === "\\" ? `\\${s}` : c < 32 || c > 126 ? `\\${c.toString(8).padStart(3, "0")}` : s;
-  }
-  return out;
-}
-
 const fr = (iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00Z`).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 const money = (minor: number, c: string) =>
   c === "XOF" ? `${minor.toLocaleString("fr-FR").replace(/\s/g, " ")} FCFA` : `${(minor / 100).toLocaleString("fr-FR", { minimumFractionDigits: 2 }).replace(/\s/g, " ")} €`;
@@ -24,7 +12,7 @@ const money = (minor: number, c: string) =>
 export function receiptPdf(inv: InvoiceRec, ownerName: string): Buffer {
   const ops: string[] = [];
   const text = (x: number, y: number, size: number, s: string, bold = false) => ops.push(`BT /${bold ? "F2" : "F1"} ${size} Tf ${x} ${y} Td (${encode(s)}) Tj ET`);
-  const right = (x: number, y: number, size: number, s: string, bold = false) => text(x - s.length * size * 0.5, y, size, s, bold);
+  const right = (x: number, y: number, size: number, s: string, bold = false) => text(x - textWidth(s, size, bold), y, size, s, bold);
   const line = (y: number) => ops.push(`0.85 G 0.8 w 56 ${y} m 539 ${y} l S`);
 
   text(56, 780, 22, "Keyo", true);

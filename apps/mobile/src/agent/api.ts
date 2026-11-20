@@ -71,3 +71,10 @@ export const postOps = (findings: AuditFinding[], score: number, context: TurnCo
     method: "POST",
     body: JSON.stringify({ findings: findings.map(({ id, severity, area, title, detail }) => ({ id, severity, area, title, detail })), score, context }),
   }, 60_000);
+
+/** Aperçu d'une page web citée (titre, site, image, icône), lu par le serveur. */
+export type LinkPreview = { url: string; title?: string; site?: string; description?: string; image?: string; icon?: string };
+
+export function fetchPreviews(urls: string[]) {
+  return call<LinkPreview[]>("/agent/previews", { method: "POST", body: JSON.stringify({ urls }) }, 15_000);
+}

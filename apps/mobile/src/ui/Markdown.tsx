@@ -1,5 +1,8 @@
-import { Linking, ScrollView, Text as RNText, View } from "react-native";
+import { useState } from "react";
+import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, Text as RNText, View } from "react-native";
+import { Download } from "lucide-react-native";
 import { color, fontFamily } from "@keyo/tokens";
+import { exportTable } from "@/agent/exportTable";
 import { Text } from "./Text";
 
 /**
@@ -60,7 +63,7 @@ type Block =
   | { kind: "li" | "ol"; text: string; n?: string; depth: number }
   | { kind: "hr" | "gap" }
   | { kind: "code"; text: string }
-  | { kind: "table"; head: string[]; rows: string[][] };
+  | { kind: "table"; head: string[]; rows: string[][]; title?: string };
 
 const isTableLine = (l: string) => /^\s*\|.*\|\s*$/.test(l);
 const isSeparator = (l: string) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(l);
@@ -92,7 +95,10 @@ export function parseMarkdown(src: string, streaming = false): Block[] {
       i += 2;
       while (i < lines.length && isTableLine(lines[i]!)) rows.push(cells(lines[i++]!));
       i--;
-      out.push({ kind: "table", head, rows: rows.map((r) => head.map((_, k) => r[k] ?? "")) });
+      // Titre de l'export : dernier titre au-dessus du tableau, ou phrase d'introduction.
+      const before = [...out].reverse().find((b) => b.kind !== "gap");
+      const title = before && "text" in before && (before.kind.startsWith("h") || before.kind === "p") ? before.text.replace(/\s*:\s*$/, "") : undefined;
+      out.push({ kind: "table", head, rows: rows.map((r) => head.map((_, k) => r[k] ?? "")), title: title?.slice(0, 120) });
       continue;
     }
     // Pendant l'écriture : une ligne de tableau pas encore complète n'est pas montrée brute.
@@ -122,33 +128,89 @@ export function parseMarkdown(src: string, streaming = false): Block[] {
 
 /** Colonne numérique (montants, pourcentages) : alignée à droite, chiffres tabulaires. */
 const numeric = (rows: string[][], k: number) => rows.some((r) => r[k]) && rows.every((r) => !r[k] || /^[\s*~≈<>+−-]*\d/.test(r[k]!.replace(/\*\*/g, "")));
+const isTotal = (r: string[]) => /^(\*\*)?\s*(total|ensemble|sous-total)/i.test(r[0] ?? "");
+const visible = (t: string) => t.replace(/\*\*|`|\[|\]\([^)]*\)/g, "");
+const CHAR = 7.6;
+const PAD = 12;
+const LINE = 20;
 
-function Table({ head, rows }: { head: string[]; rows: string[][] }) {
+/**
+ * Tableau, comme dans ChatGPT ou Claude : carte arrondie, en-tête teinté, lignes alternées, ligne
+ * Total en évidence, première colonne fixe quand le tableau défile, bouton Exporter (PDF ou tableur).
+ */
+function Table({ head, rows, title }: { head: string[]; rows: string[][]; title?: string }) {
+  const [busy, setBusy] = useState(false);
   const width = (k: number) => {
-    const longest = Math.max(...[head[k] ?? "", ...rows.map((r) => r[k] ?? "")].map((t) => t.replace(/\*\*|`/g, "").length));
-    return Math.min(220, Math.max(72, longest * 7.6 + 28));
+    const longest = Math.max(...[head[k] ?? "", ...rows.map((r) => r[k] ?? "")].map((t) => visible(t).length));
+    return k === 0 ? Math.min(160, Math.max(96, longest * CHAR + 2 * PAD)) : Math.min(200, Math.max(80, longest * CHAR + 2 * PAD));
   };
   const widths = head.map((_, k) => width(k));
-  const right = head.map((_, k) => numeric(rows, k));
-  const cell = (t: string, k: number, bold: boolean) => (
-    <View key={k} style={{ width: widths[k], paddingHorizontal: 12, paddingVertical: 10, justifyContent: "center" }}>
-      <Text variant={bold ? "rowTitle" : "rowSubtitle"} tone="ink" selectable style={{ textAlign: right[k] ? "right" : "left", fontVariant: right[k] ? ["tabular-nums"] : undefined, fontSize: 14, lineHeight: 20 }}>
+  const right = head.map((_, k) => k > 0 && numeric(rows, k));
+  // Hauteur de chaque ligne, commune à la colonne fixe et à la partie qui défile.
+  const linesOf = (t: string, k: number) => Math.min(3, Math.max(1, Math.ceil((visible(t).length * CHAR * 1.05) / (widths[k]! - 2 * PAD))));
+  const heightOf = (r: string[]) => Math.max(...r.map((t, k) => linesOf(t, k))) * LINE + 2 * 10;
+  const headH = heightOf(head);
+  const rowH = rows.map(heightOf);
+  const bg = (j: number) => (isTotal(rows[j]!) ? color.mintTint : j % 2 ? color.surface : color.surfaceRaised);
+
+  const cell = (t: string, k: number, h: number, kind: "head" | "row" | "total", key: string) => (
+    <View key={key} style={{ width: widths[k], height: h, paddingHorizontal: PAD, justifyContent: "center" }}>
+      <Text
+        variant={kind === "row" ? "rowSubtitle" : "rowTitle"}
+        tone={kind === "head" ? "inkMuted" : "ink"}
+        numberOfLines={3}
+        selectable
+        style={{ textAlign: right[k] ? "right" : "left", fontVariant: right[k] ? ["tabular-nums"] : undefined, fontSize: kind === "head" ? 13 : 14, lineHeight: LINE }}
+      >
         <Inline text={t} />
       </Text>
     </View>
   );
-  return (
-    <View style={{ marginVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: color.line, overflow: "hidden", backgroundColor: color.surfaceRaised }}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} bounces={false}>
-        <View>
-          <View style={{ flexDirection: "row", backgroundColor: color.surfaceSoft }}>{head.map((h, k) => cell(h, k, true))}</View>
-          {rows.map((r, j) => (
-            <View key={j} style={{ flexDirection: "row", borderTopWidth: 1, borderTopColor: color.line }}>
-              {r.map((t, k) => cell(t, k, false))}
-            </View>
-          ))}
+  const column = (from: number, to: number) => (
+    <View style={{ flexGrow: 1 }}>
+      <View style={{ flexDirection: "row", backgroundColor: color.surfaceSoft }}>{head.slice(from, to).map((h, i) => cell(h, from + i, headH, "head", `h${i}`))}</View>
+      {rows.map((r, j) => (
+        <View key={j} style={{ flexDirection: "row", backgroundColor: bg(j), borderTopWidth: 1, borderTopColor: color.line }}>
+          {r.slice(from, to).map((t, i) => cell(t, from + i, rowH[j]!, isTotal(r) ? "total" : "row", `c${i}`))}
         </View>
-      </ScrollView>
+      ))}
+    </View>
+  );
+  const exportAs = (kind: "pdf" | "csv") => {
+    setBusy(true);
+    exportTable({ title, head, rows }, kind)
+      .catch((e: unknown) => Alert.alert("Export impossible", e instanceof Error ? e.message : "Réessayez dans un instant."))
+      .finally(() => setBusy(false));
+  };
+  const chooseExport = () =>
+    Alert.alert("Exporter le tableau", undefined, [
+      { text: "PDF", onPress: () => exportAs("pdf") },
+      { text: "Tableur (Excel, Numbers)", onPress: () => exportAs("csv") },
+      { text: "Annuler", style: "cancel" },
+    ]);
+
+  return (
+    <View style={{ marginVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: color.line, overflow: "hidden", backgroundColor: color.surfaceRaised }}>
+      <View style={{ flexDirection: "row" }}>
+        {/* Première colonne fixe : on garde le nom du bien sous les yeux en faisant défiler. */}
+        <View style={{ borderRightWidth: head.length > 1 ? 1 : 0, borderRightColor: color.line }}>{column(0, 1)}</View>
+        {head.length > 1 ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} bounces={false} style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1 }}>
+            {column(1, head.length)}
+          </ScrollView>
+        ) : null}
+      </View>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: PAD, paddingVertical: 8, borderTopWidth: 1, borderTopColor: color.line }}>
+        <Text variant="caption" tone="inkMuted">
+          {`${rows.length} ligne${rows.length > 1 ? "s" : ""}`}
+        </Text>
+        <Pressable onPress={chooseExport} disabled={busy} hitSlop={8} accessibilityRole="button" accessibilityLabel="Exporter le tableau en PDF ou en tableur" style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 6, height: 32, paddingHorizontal: 12, borderRadius: 999, backgroundColor: color.surfaceSoft, opacity: busy ? 0.5 : pressed ? 0.7 : 1 })}>
+          {busy ? <ActivityIndicator size="small" color={color.ink} /> : <Download size={15} strokeWidth={1.8} color={color.ink} />}
+          <Text variant="caption" tone="ink" style={{ fontFamily: fontFamily.semibold }}>
+            Exporter
+          </Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -163,7 +225,7 @@ export function Markdown({ text, streaming = false }: { text: string; streaming?
           case "hr":
             return <View key={i} style={{ height: 1, backgroundColor: color.line, marginVertical: 8 }} />;
           case "table":
-            return <Table key={i} head={b.head} rows={b.rows} />;
+            return <Table key={i} head={b.head} rows={b.rows} title={b.title} />;
           case "code":
             return (
               <ScrollView key={i} horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 6, borderRadius: 14, backgroundColor: color.surfaceSoft }} contentContainerStyle={{ padding: 14 }}>

@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Share, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Cable, History, SlidersHorizontal } from "lucide-react-native";
 import * as LocalAuthentication from "expo-local-authentication";
 import { conversation } from "@/agent/conversation";
+import { speak, voiceQuality } from "@/agent/voice";
 import { session, useSettings, useUser, type Settings } from "@/data/session";
 import { actions, getOwnerState, useOwnerState } from "@/data/store";
 import { ActionRow, Button, CurrencySelect, InfoRow, NavRow, Segmented, SettingsGroup, SubScreen, Text, TextField, ToggleRow } from "@/ui";
@@ -103,9 +104,7 @@ function Section({ section }: { section: SettingsSection }) {
             <NavRow icon={SlidersHorizontal} tint="mintTint" ink="mintDeep" title="Autonomie" value="Par action" onPress={() => router.push("/agent/autonomie")} />
             <NavRow icon={Cable} tint="mintTint" ink="mintDeep" title="Connexions" value="WhatsApp, SMS…" onPress={() => router.push("/agent/connexions")} />
           </SettingsGroup>
-          <SettingsGroup>
-            <ToggleRow title="Lire les réponses à voix haute" value={settings.agentSpeaks} onChange={(v) => set({ agentSpeaks: v })} />
-          </SettingsGroup>
+          <VoiceSetting on={settings.agentSpeaks} onChange={(v) => set({ agentSpeaks: v })} />
           <SettingsGroup>
             <ActionRow title="Effacer toutes les conversations" destructive onPress={() => conversation.reset()} />
           </SettingsGroup>
@@ -221,5 +220,24 @@ function Data() {
         {assetCount} bien{assetCount > 1 ? "s" : ""} enregistré{assetCount > 1 ? "s" : ""}.
       </Text>
     </>
+  );
+}
+
+/** Voix de l'agent : essai, et conseil pour installer une voix de meilleure qualité sur l'iPhone. */
+function VoiceSetting({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
+  const [quality, setQuality] = useState<"premium" | "standard">();
+  useEffect(() => void voiceQuality().then(setQuality), []);
+  return (
+    <SettingsGroup
+      title="Voix"
+      footer={
+        quality === "standard"
+          ? "Pour une voix plus naturelle, téléchargez une voix française de qualité sur votre iPhone : Réglages > Accessibilité > Contenu énoncé > Voix > Français, puis « Audrey (Premium) » ou « Thomas (améliorée) ». Keyo l'utilisera automatiquement."
+          : "Keyo utilise la meilleure voix française installée sur votre téléphone."
+      }
+    >
+      <ToggleRow title="Lire les réponses à voix haute" value={on} onChange={onChange} />
+      <ActionRow title="Écouter un exemple" onPress={() => void speak("Bonjour, je suis l'agent Keyo. Ce mois-ci, vos 13 loyers sont tous encaissés, soit 3 580 000 FCFA. Voulez-vous le détail par bien ?")} />
+    </SettingsGroup>
   );
 }

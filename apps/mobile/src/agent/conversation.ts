@@ -1,10 +1,10 @@
 import { useSyncExternalStore } from "react";
-import * as Speech from "expo-speech";
 import { AGENT_TOOLS, formatMoney, isAgentTool, needsConfirmation, type Money } from "@keyo/shared";
 import { KEYS, load, remove, save } from "@/data/persist";
 import { getSession, getSettings } from "@/data/session";
 import { agentMode, AgentUnavailable, apiBase, postTurn, type ApiMessage } from "./api";
 import { toContentBlock, type Attachment } from "./attachments";
+import { speak, stopSpeaking } from "./voice";
 import { demoAttachmentReply, demoReply } from "./demo";
 import { demoAutonomyReply } from "./demoAutonomy";
 import { describeAction, executeTool, turnContext } from "./tools";
@@ -20,14 +20,14 @@ export type FeedItem =
   | { id: string; kind: "user"; text: string; attachments?: AttachmentRef[]; hist?: number }
   /** `feedback` : avis du propriétaire sur la réponse, relu par l'équipe côté serveur. */
   | { id: string; kind: "agent"; text: string; link?: { label: string; href: string }; model?: string; feedback?: "up" | "down"; web?: WebSource[] }
-  | { id: string; kind: "activity"; label: string; ok: boolean }
+  /** `tool` : outil appelé (icône de l'étape). */
+  | { id: string; kind: "activity"; label: string; ok: boolean; tool?: string }
   | { id: string; kind: "proposal"; toolUseId: string; name: string; input: Record<string, unknown>; description: string; status: "pending" | "done" | "declined" | "failed"; result?: string }
   | { id: string; kind: "quota"; text: string; status: "pending" | "accepted" | "declined" }
   | { id: string; kind: "error"; text: string };
 
-/** Pièce jointe gardée sur le téléphone (sans son contenu encodé). */
-/** Page web citée par l'agent (recherche sur Internet). */
-export type WebSource = { title: string; url: string };
+/** Page web trouvée par l'agent (recherche sur Internet). `cited` : utilisée dans la réponse. */
+export type WebSource = { title: string; url: string; cited?: boolean; age?: string };
 
 /**
  * Texte d'une réponse. Avec la recherche web, Claude découpe sa réponse en morceaux autour de chaque
@@ -46,6 +46,38 @@ export function replyOf(content: { type: string; [k: string]: unknown }[]) {
     for (const c of cites) if (c.url && !web.some((w) => w.url === c.url)) web.push({ url: c.url, title: c.title?.trim() || new URL(c.url).hostname });
   }
   return { text: text.replace(/\n{3,}/g, "\n\n"), web: web.slice(0, 8) };
+}
+
+/** Pages renvoyées par la recherche web dans une réponse de Claude (consultées, citées ou non). */
+export function searchResultsOf(content: { type: string; [k: string]: unknown }[]): WebSource[] {
+  const out: WebSource[] = [];
+  for (const b of content) {
+    if (b.type !== "web_search_tool_result" || !Array.isArray(b.content)) continue;
+    for (const r of b.content as { type?: string; url?: string; title?: string; page_age?: string }[]) {
+      if (r.type === "web_search_result" && r.url && /^https?:\/\//.test(r.url)) out.push({ url: r.url, title: r.title?.trim() || r.url, age: r.page_age ?? undefined });
+    }
+  }
+  return out;
+}
+
+const sameUrl = (a: string, b: string) => a.replace(/[#?].*$/, "").replace(/\/$/, "") === b.replace(/[#?].*$/, "").replace(/\/$/, "");
+
+/**
+ * Sources d'une réponse : d'abord celles utilisées (citées ou en lien dans le texte), dans l'ordre où
+ * elles apparaissent, puis les autres pages consultées.
+ */
+export function sourcesOf(text: string, cited: WebSource[], consulted: WebSource[]): WebSource[] {
+  const linked = [...text.matchAll(/\]\((https?:\/\/[^)\s]+)\)|(https?:\/\/[^\s)]+)/g)].map((m) => (m[1] ?? m[2])!);
+  const all: WebSource[] = [];
+  const add = (w: WebSource) => {
+    const known = all.find((x) => sameUrl(x.url, w.url));
+    if (known) Object.assign(known, { cited: known.cited || w.cited, age: known.age ?? w.age, title: known.title === known.url ? w.title : known.title });
+    else all.push({ ...w });
+  };
+  for (const u of linked) add({ ...(consulted.find((c) => sameUrl(c.url, u)) ?? { url: u, title: u }), cited: true });
+  for (const c of cited) add({ ...(consulted.find((x) => sameUrl(x.url, c.url)) ?? c), title: c.title, cited: true });
+  for (const c of consulted) add({ ...c, cited: false });
+  return all.slice(0, 12);
 }
 
 export type AttachmentRef = { id: string; name: string; uri: string; kind: "image" | "pdf" };
@@ -148,16 +180,8 @@ export function useConversation(): State {
   );
 }
 
-/** Texte lu à voix haute : sans la ligne des sources ni la mise en forme. */
-export function speak(text: string) {
-  const clean = text
-    .split("\n")
-    .filter((l) => !/^sources\s*:/i.test(l.trim()))
-    .join(". ")
-    .replace(/[*#_`]/g, "");
-  Speech.stop();
-  Speech.speak(clean, { language: "fr-FR", rate: 1.0 });
-}
+/** Lecture à voix haute : voir voice.ts. */
+export { speak };
 
 function sayAgent(text: string, link?: { label: string; href: string }, model?: string, web?: WebSource[]) {
   if (!text.trim()) return;
@@ -183,6 +207,8 @@ const checkStopped = () => {
 
 /** Palier de modèle atteint dans la demande en cours (choisi par l'agent selon ses actions). */
 let turnTier: "FAST" | "STANDARD" | "EXPERT" | undefined;
+/** Pages consultées par la recherche web pendant la demande en cours (toutes étapes confondues). */
+let turnWeb: WebSource[] = [];
 /** Accord du propriétaire pour une analyse d'expert au-delà du quota : vaut pour la demande relancée. */
 let consentNext = false;
 let turnConsent = false;
@@ -195,6 +221,7 @@ async function runClaude(steps = 0): Promise<void> {
   }
   if (steps === 0) {
     turnTier = undefined;
+    turnWeb = [];
     turnConsent = consentNext;
     consentNext = false;
   }
@@ -214,13 +241,17 @@ async function runClaude(steps = 0): Promise<void> {
     return;
   }
   const reply = replyOf(res.content);
-  sayAgent(reply.text, res.locked ? { label: "Mon abonnement", href: "/abonnement" } : undefined, res.model, reply.web);
+  turnWeb.push(...searchResultsOf(res.content));
+  // Les sources accompagnent la réponse finale de la demande, pas les phrases intermédiaires.
+  const final = res.stop_reason !== "tool_use" && res.stop_reason !== "pause_turn";
+  const web = final ? sourcesOf(reply.text, reply.web, turnWeb) : undefined;
+  sayAgent(reply.text, res.locked ? { label: "Mon abonnement", href: "/abonnement" } : undefined, res.model, web);
   if (res.stop_reason === "max_tokens") push({ id: id(), kind: "error", text: "Réponse interrompue : elle était trop longue." });
   // Recherches sur le web (outil serveur de Claude) : affichées comme les autres activités.
   for (const b of res.content) {
     if (b.type === "server_tool_use" && b.name === "web_search") {
       const q = (b.input as { query?: string } | undefined)?.query;
-      push({ id: id(), kind: "activity", label: `Recherche sur le web${q ? ` : ${q}` : ""}`, ok: true });
+      push({ id: id(), kind: "activity", label: `Recherche sur le web${q ? ` : ${q}` : ""}`, ok: true, tool: "web_search" });
     }
   }
   // Recherche longue mise en pause par le serveur : on renvoie tel quel pour qu'il reprenne.
@@ -238,7 +269,7 @@ async function runClaude(steps = 0): Promise<void> {
       continue;
     }
     const out = await executeTool(u.name, u.input);
-    if (u.name !== "switch_model") push({ id: id(), kind: "activity", label: out.ok ? `${labelOf(u.name)} : ${out.summary}` : `${labelOf(u.name)} : échec`, ok: out.ok });
+    if (u.name !== "switch_model") push({ id: id(), kind: "activity", label: out.ok ? `${labelOf(u.name)} : ${out.summary}` : `${labelOf(u.name)} : échec`, ok: out.ok, tool: u.name });
     record(u.id, out.ok ? { content: JSON.stringify(out.result) } : { content: out.error, is_error: true });
     checkStopped();
   }
@@ -336,7 +367,7 @@ export const conversation = {
   async send(raw: string, files: Attachment[] = []) {
     const text = raw.trim() || (files.length ? "Voici un document." : "");
     if (!text || state.busy || state.pending) return;
-    Speech.stop();
+    stopSpeaking();
     const refs: AttachmentRef[] = files.map(({ id: aid, name, uri, kind }) => ({ id: aid, name, uri, kind }));
     push({ id: id(), kind: "user", text: raw.trim(), attachments: refs.length ? refs : undefined, hist: state.history.length });
     set({ attachments: { ...state.attachments, ...Object.fromEntries(refs.map((r) => [r.id, r])) } });
@@ -345,7 +376,7 @@ export const conversation = {
 
   /** Arrête la réponse en cours. */
   stop() {
-    Speech.stop();
+    stopSpeaking();
     current?.abort();
   },
 
@@ -360,7 +391,7 @@ export const conversation = {
     const i = lastUserIndex();
     const u = state.feed[i];
     if (!u || u.kind !== "user") return;
-    Speech.stop();
+    stopSpeaking();
     set({ feed: state.feed.slice(0, i + 1), pending: null });
     await guard(async () => {
       const mode = await ensureMode();
@@ -377,7 +408,7 @@ export const conversation = {
     const i = state.feed.findIndex((f) => f.id === itemId);
     const u = state.feed[i];
     if (!u || u.kind !== "user") return null;
-    Speech.stop();
+    stopSpeaking();
     set({ feed: state.feed.slice(0, i), history: state.history.slice(0, u.hist ?? state.history.length), pending: null });
     return u.text;
   },
@@ -419,7 +450,7 @@ export const conversation = {
   /** Nouvelle conversation ; l'actuelle rejoint l'historique si elle n'est pas vide. */
   newThread() {
     if (state.busy) return;
-    Speech.stop();
+    stopSpeaking();
     void pushThread(threadOf(state)).catch(() => undefined);
     const archive = state.feed.length ? [threadOf(state), ...state.archive].slice(0, MAX_THREADS) : state.archive;
     state = { ...state, ...blank(), archive };
@@ -439,7 +470,7 @@ export const conversation = {
         return;
       }
     }
-    Speech.stop();
+    stopSpeaking();
     void pushThread(threadOf(state)).catch(() => undefined);
     const rest = state.archive.filter((x) => x.id !== threadId);
     state = { ...state, ...t, archive: state.feed.length ? [threadOf(state), ...rest].slice(0, MAX_THREADS) : rest };
@@ -459,7 +490,7 @@ export const conversation = {
 
   /** Efface toutes les conversations (Profil > Agent Keyo, ou effacement des données). */
   async reset() {
-    Speech.stop();
+    stopSpeaking();
     current?.abort();
     for (const t of [threadOf(state), ...state.archive]) void remote(`/${t.id}`, "DELETE").catch(() => undefined);
     await remove(KEYS.agent);
