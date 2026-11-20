@@ -154,6 +154,21 @@ export const actions = {
     listeners.forEach((l) => l());
   },
 
+  /**
+   * Les données de ce téléphone appartiennent au propriétaire connecté. Un bien créé lors d'une
+   * connexion précédente (autre numéro, numéro mal saisi) garde sinon l'ancien identifiant et
+   * disparaît du patrimoine et du passeport. Les parts de famille suivent le même changement.
+   */
+  adoptOwner(ownerId: string) {
+    const stale = new Set(state.assets.filter((a) => a.ownerId !== ownerId).map((a) => a.ownerId));
+    if (!stale.size) return;
+    setState((s) => ({
+      ...s,
+      assets: s.assets.map((a) => (stale.has(a.ownerId) ? { ...a, ownerId } : a)),
+      shares: s.shares.map((x) => (stale.has(x.holderId) ? { ...x, holderId: ownerId } : x)),
+    }));
+  },
+
   loadDemo(ownerId: string) {
     setState(() => createDemoState(ownerId, nowIso()));
   },

@@ -35,6 +35,14 @@ export class AutonomousController {
   ) {}
 
   /** L'app envoie l'état de ses données (passerelle avant la synchronisation complète). */
+  /** Données telles que le serveur les a reçues de l'app (relecture, diagnostic, futur changement de téléphone). */
+  @Get("snapshot")
+  getSnapshot(@Headers("x-keyo-owner") id: string, @Headers("authorization") auth: string) {
+    const s = this.store.getSnapshot(owner(id, auth));
+    if (!s) throw new HttpException({ error: "Aucune donnée reçue de l'app pour l'instant." }, HttpStatus.NOT_FOUND);
+    return s;
+  }
+
   @Put("snapshot")
   snapshot(@Headers("x-keyo-owner") id: string, @Headers("authorization") auth: string, @Body() body: unknown) {
     const o = owner(id, auth);
