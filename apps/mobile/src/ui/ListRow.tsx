@@ -5,7 +5,7 @@ import { color, size } from "@keyo/tokens";
 import { Text } from "./Text";
 
 type Props = {
-  leading: ReactNode;
+  leading?: ReactNode;
   title: string;
   subtitle?: string;
   trailing?: ReactNode;

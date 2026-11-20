@@ -442,7 +442,7 @@ const EXECUTORS: { [N in AgentToolName]: Executor<N> } = {
         receivingAccounts: receive.map((a) => ({ account: `${a.label} ${a.masked}`, holder: a.holder, status: PAYMENT_ACCOUNT_STATUS_LABEL[a.status], isDefault: a.isDefault, assets: a.assetIds.map(assetName), warning: a.warning })),
         assetsWithoutAccount: s.assets.filter((x) => !receivingAccountFor(list, x.id)).map((x) => x.name),
         subscription: sub ? { account: `${sub.label} ${sub.masked}`, status: PAYMENT_ACCOUNT_STATUS_LABEL[sub.status] } : null,
-        note: "Lecture seule. Pour ajouter, modifier ou supprimer un compte : Profil, Recevoir mes loyers (code SMS). Keyo ne détient jamais les fonds.",
+        note: "Lecture seule. Pour ajouter, modifier ou supprimer un compte : Profil, Comptes de réception pour les loyers, ou Abonnement pour le moyen de paiement personnel (code SMS). Keyo ne détient jamais les fonds.",
       },
       `${receive.filter((a) => a.status === "VERIFIED").length} compte${receive.length > 1 ? "s" : ""} de réception vérifié${receive.length > 1 ? "s" : ""}`,
     );

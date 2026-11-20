@@ -10,7 +10,11 @@ import type { SettingsSection } from "./reglages/[section]";
 
 const open = (section: SettingsSection) => router.push({ pathname: "/reglages/[section]", params: { section } });
 
-/** Profil : identité, puis les réglages rangés par rubrique (une page par rubrique). */
+/**
+ * Profil, sur le modèle des réglages de ChatGPT et Claude : groupes courts, une page par sujet,
+ * valeur actuelle en gris. « Abonnement » (ce que vous payez à Keyo) et « Comptes de réception »
+ * (où arrivent vos loyers) sont deux pages distinctes qui ne se mélangent jamais.
+ */
 export default function Profile() {
   const user = useUser();
   const settings = useSettings();
@@ -19,7 +23,6 @@ export default function Profile() {
   const name = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim();
   const notifOn = Object.values(settings.notifications).filter(Boolean).length;
   const notifTotal = Object.values(settings.notifications).length;
-  const sub = useOwnerState((s) => (s.paymentAccounts ?? []).find((a) => a.purpose === "SUBSCRIPTION"));
   const plan = useOwnerState((s) => s.subscription);
   const payout = useOwnerState((s) => (s.paymentAccounts ?? []).find((a) => a.purpose === "RECEIVE" && a.status === "VERIFIED" && a.isDefault));
 
@@ -41,18 +44,21 @@ export default function Profile() {
         </View>
       </View>
 
-      <SettingsGroup title="Mon compte">
-        <NavRow icon={UserRound} tint="mintTint" ink="mintDeep" title="Informations personnelles" value={name} onPress={() => open("compte")} />
-        <NavRow icon={CreditCard} tint="mintTint" ink="mintDeep" title="Mon abonnement" value={plan ? `${plan.plan ? plan.plan.name : "Sur mesure"} · ${SUBSCRIPTION_STATUS_LABEL[plan.status].toLowerCase()}` : sub ? `${sub.label} ${sub.masked}` : "Ajouter une carte"} onPress={() => router.push("/abonnement")} />
-        <NavRow icon={Fingerprint} tint="mintTint" ink="mintDeep" title="Sécurité" value={settings.biometricLock ? "Face ID activé" : "Face ID désactivé"} onPress={() => open("securite")} />
+      <SettingsGroup title="Compte">
+        <NavRow icon={UserRound} title="Informations personnelles" value={user.phone} onPress={() => open("compte")} />
+        <NavRow icon={CreditCard} title="Abonnement" value={plan ? `${plan.plan ? plan.plan.name : "Sur mesure"} · ${SUBSCRIPTION_STATUS_LABEL[plan.status].toLowerCase()}` : undefined} onPress={() => router.push("/abonnement")} />
+        <NavRow icon={Fingerprint} title="Sécurité" value={settings.biometricLock ? "Face ID" : "Désactivée"} onPress={() => open("securite")} />
       </SettingsGroup>
 
-      <SettingsGroup title="Gestion">
-        <NavRow icon={Landmark} tint="mintTint" ink="mintDeep" title="Passeport propriétaire" value="Crédit et banque" onPress={() => router.push("/passeport")} />
-        <NavRow icon={Users} tint="mintTint" ink="mintDeep" title="Famille et patrimoine" value={familyCount ? `${familyCount} proche${familyCount > 1 ? "s" : ""}` : "Inviter"} onPress={() => router.push("/famille")} />
-        <NavRow icon={Send} tint="amberTint" ink="amber" title="Relances" value={user.autoReminders ? "Automatiques" : "Désactivées"} onPress={() => open("relances")} />
-        <NavRow icon={Wallet} tint="amberTint" ink="amber" title="Recevoir mes loyers" value={payout ? `${payout.label} ${payout.masked}` : "À configurer"} onPress={() => router.push("/encaissement")} />
-        <NavRow icon={Bot} tint="amberTint" ink="amber" title="Agent Keyo" value="Accord et autonomie" onPress={() => open("agent")} />
+      <SettingsGroup title="Mes loyers">
+        <NavRow icon={Wallet} title="Comptes de réception" value={payout ? `${payout.label} ${payout.masked}` : "À configurer"} onPress={() => router.push("/encaissement")} />
+        <NavRow icon={Send} title="Relances" value={user.autoReminders ? "Automatiques" : "Désactivées"} onPress={() => open("relances")} />
+      </SettingsGroup>
+
+      <SettingsGroup title="Keyo">
+        <NavRow icon={Bot} title="Agent Keyo" value="Accord et autonomie" onPress={() => open("agent")} />
+        <NavRow icon={Users} title="Famille et patrimoine" value={familyCount ? `${familyCount} proche${familyCount > 1 ? "s" : ""}` : undefined} onPress={() => router.push("/famille")} />
+        <NavRow icon={Landmark} title="Passeport propriétaire" onPress={() => router.push("/passeport")} />
       </SettingsGroup>
 
       <SettingsGroup title="Application">
@@ -62,7 +68,7 @@ export default function Profile() {
       </SettingsGroup>
 
       <SettingsGroup title="Assistance">
-        <NavRow icon={CircleHelp} title="Centre d'aide et contact" onPress={() => router.push("/aide")} />
+        <NavRow icon={CircleHelp} title="Aide et contact" onPress={() => router.push("/aide")} />
         <NavRow icon={FileText} title="Conditions et confidentialité" onPress={() => router.push("/mentions")} />
       </SettingsGroup>
 

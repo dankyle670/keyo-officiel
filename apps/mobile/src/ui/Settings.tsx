@@ -42,7 +42,8 @@ export function NavRow({
   value,
   onPress,
 }: {
-  icon: LucideIcon;
+  /** Facultative : les sous-pages se lisent mieux sans icône, comme les réglages de ChatGPT ou Claude. */
+  icon?: LucideIcon;
   tint?: ColorToken;
   ink?: ColorToken;
   title: string;
@@ -54,9 +55,9 @@ export function NavRow({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={value ? `${title}, ${value}` : title}
-      style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 14, minHeight: 64, paddingVertical: 10, opacity: pressed ? 0.6 : 1 })}
+      style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 14, minHeight: icon ? 64 : 56, paddingVertical: 10, opacity: pressed ? 0.6 : 1 })}
     >
-      <IconCircle icon={icon} bg={tint} fg={ink} diameter={36} />
+      {icon ? <IconCircle icon={icon} bg={tint} fg={ink} diameter={36} /> : null}
       <Text variant="rowTitle" style={{ flex: 1 }} numberOfLines={1}>
         {title}
       </Text>

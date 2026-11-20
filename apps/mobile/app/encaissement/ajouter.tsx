@@ -1,18 +1,19 @@
 import { useState } from "react";
-import { Pressable, View } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
-import { isIvorianMobile, isValidIban, MOBILE_MONEY_OPERATORS, OPERATOR_LABEL, type MobileMoneyOperator } from "@keyo/shared";
-import { color, fontFamily } from "@keyo/tokens";
+import { router } from "expo-router";
+import { isIvorianMobile, isValidIban, type MobileMoneyOperator } from "@keyo/shared";
 import { useUser } from "@/data/session";
 import { useOwnerState } from "@/data/store";
 import { paymentApi, PaymentApiError, type Challenge } from "@/payments/api";
 import { CodeSheet } from "@/payments/CodeSheet";
+import { OperatorPicker } from "@/payments/OperatorPicker";
 import { Button, Segmented, SettingsGroup, SubScreen, Text, TextField, ToggleRow } from "@/ui";
 
-/** Ajout d'un compte : saisie, puis code SMS pour le vérifier. */
+/**
+ * Nouveau compte de réception des loyers : saisie, puis code SMS pour le vérifier.
+ * (Le moyen de paiement de l'abonnement Keyo a son propre écran : abonnement/moyen-de-paiement.)
+ */
 export default function AddAccount() {
-  const { purpose: p } = useLocalSearchParams<{ purpose?: string }>();
-  const purpose: "RECEIVE" | "SUBSCRIPTION" = p === "SUBSCRIPTION" ? "SUBSCRIPTION" : "RECEIVE";
+  const purpose = "RECEIVE" as const;
   const user = useUser();
   const assets = useOwnerState((s) => s.assets);
   const hasDefault = useOwnerState((s) => (s.paymentAccounts ?? []).some((a) => a.purpose === "RECEIVE" && a.isDefault && a.status === "VERIFIED"));
@@ -37,7 +38,7 @@ export default function AddAccount() {
     setBusy(true);
     setError(undefined);
     try {
-      const base = { purpose, holder: holder.trim(), assetIds: purpose === "RECEIVE" ? assetIds : [], isDefault: purpose === "RECEIVE" ? isDefault : true };
+      const base = { purpose, holder: holder.trim(), assetIds, isDefault };
       const r = await paymentApi.create(kind === "MOBILE_MONEY" ? { ...base, kind, operator, phone: e164 } : { ...base, kind, purpose: "RECEIVE", bankName: bankName.trim(), iban });
       setChallenge(r.challenge);
     } catch (e) {
@@ -49,53 +50,22 @@ export default function AddAccount() {
 
   return (
     <SubScreen
-      title={purpose === "SUBSCRIPTION" ? "Payer mon abonnement" : "Nouveau compte de réception"}
-      subtitle={purpose === "SUBSCRIPTION" ? "Votre abonnement Keyo sera prélevé sur ce compte, avec votre accord à chaque échéance." : "Les loyers payés en ligne par vos occupants arriveront ici."}
+      title="Nouveau compte de réception"
+      subtitle="Les loyers payés en ligne par vos locataires arriveront sur ce compte."
       footer={<Button label={busy ? "Envoi du code…" : "Recevoir le code de vérification"} disabled={!valid || busy} onPress={submit} />}
     >
-      {purpose === "RECEIVE" ? (
-        <Segmented
-          value={kind}
-          options={[
-            { value: "MOBILE_MONEY", label: "Mobile Money" },
-            { value: "BANK", label: "Compte bancaire" },
-          ]}
-          onChange={setKind}
-        />
-      ) : (
-        <Segmented
-          value="MOBILE_MONEY"
-          options={[
-            { value: "MOBILE_MONEY", label: "Mobile Money" },
-            { value: "CARD", label: "Carte, bientôt", disabled: true },
-          ]}
-          onChange={() => undefined}
-        />
-      )}
+      <Segmented
+        value={kind}
+        options={[
+          { value: "MOBILE_MONEY", label: "Mobile Money" },
+          { value: "BANK", label: "Compte bancaire" },
+        ]}
+        onChange={setKind}
+      />
 
       {kind === "MOBILE_MONEY" ? (
         <>
-          <Text variant="rowSubtitle" tone="inkMuted" style={{ marginTop: 16 }}>
-            Opérateur
-          </Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 }} accessibilityRole="radiogroup">
-            {MOBILE_MONEY_OPERATORS.map((o) => {
-              const active = o === operator;
-              return (
-                <Pressable
-                  key={o}
-                  onPress={() => setOperator(o)}
-                  accessibilityRole="radio"
-                  accessibilityState={{ checked: active }}
-                  style={{ height: 44, paddingHorizontal: 18, borderRadius: 999, justifyContent: "center", backgroundColor: active ? color.night : color.surfaceRaised }}
-                >
-                  <Text variant="rowTitle" tone={active ? "onNight" : "ink"} style={{ fontFamily: fontFamily.semibold }}>
-                    {OPERATOR_LABEL[o]}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          <OperatorPicker value={operator} onChange={setOperator} />
           <TextField
             label="Numéro Mobile Money"
             value={phone}
@@ -125,19 +95,15 @@ export default function AddAccount() {
 
       <TextField label="Titulaire du compte" value={holder} onChangeText={setHolder} autoCapitalize="words" hint="Nom exact enregistré chez l'opérateur ou la banque." />
 
-      {purpose === "RECEIVE" && (
-        <>
-          <SettingsGroup footer="Les biens sans compte attribué utilisent le compte par défaut.">
-            <ToggleRow title="Compte par défaut" value={isDefault} onChange={setIsDefault} />
-          </SettingsGroup>
-          {assets.length > 0 && (
-            <SettingsGroup title="Réservé à certains biens (facultatif)">
-              {assets.map((a) => (
-                <ToggleRow key={a.id} title={a.name} value={assetIds.includes(a.id)} onChange={(v) => setAssetIds((ids) => (v ? [...ids, a.id] : ids.filter((x) => x !== a.id)))} />
-              ))}
-            </SettingsGroup>
-          )}
-        </>
+      <SettingsGroup footer="Les biens sans compte attribué utilisent le compte par défaut.">
+        <ToggleRow title="Compte par défaut" value={isDefault} onChange={setIsDefault} />
+      </SettingsGroup>
+      {assets.length > 0 && (
+        <SettingsGroup title="Réservé à certains biens (facultatif)">
+          {assets.map((a) => (
+            <ToggleRow key={a.id} title={a.name} value={assetIds.includes(a.id)} onChange={(v) => setAssetIds((ids) => (v ? [...ids, a.id] : ids.filter((x) => x !== a.id)))} />
+          ))}
+        </SettingsGroup>
       )}
 
       {error && (
