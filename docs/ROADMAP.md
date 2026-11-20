@@ -186,7 +186,8 @@ Owner (propriétaire)
 - [ ] Biens, lots, baux, invitation du locataire
 - [ ] Échéancier des loyers généré à partir du bail
 - [x] Comptes de réception du propriétaire (Mobile Money, banque ; par bien), vérifiés par code SMS, chiffrés
-- [x] Moyen de paiement de l'abonnement Keyo (Mobile Money ; carte avec Stripe ensuite)
+- [x] Moyen de paiement de l'abonnement Keyo : carte (Visa, Mastercard…) ou Mobile Money ; prestataire carte simulé, Stripe ou CinetPay à brancher
+- [ ] Tarif de l'abonnement (forfait mensuel fixe) et prélèvements
 - [ ] Paiement Mobile Money (CinetPay ou PayDunya) + webhooks + lien SMS de secours
 - [ ] Statuts des loyers (à venir, payé, en retard, partiel) calculés par une tâche quotidienne
 - [ ] Relances automatiques (push puis SMS), rédigées avec un ton progressif

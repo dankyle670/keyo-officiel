@@ -26,6 +26,12 @@ export class PaymentAccountsController {
     return wrap(this.svc.create(owner(id, auth), body));
   }
 
+  /** Carte de l'abonnement : jeton émis par le formulaire du prestataire, jamais le numéro. */
+  @Post("cards")
+  addCard(@Headers("x-keyo-owner") id: string, @Headers("authorization") auth: string, @Body() body: unknown) {
+    return wrap(this.svc.addCard(owner(id, auth), body));
+  }
+
   @Post(":accountId/changes")
   change(@Headers("x-keyo-owner") id: string, @Headers("authorization") auth: string, @Param("accountId") accountId: string, @Body() body: unknown) {
     return wrap(this.svc.requestChange(owner(id, auth), accountId, body));

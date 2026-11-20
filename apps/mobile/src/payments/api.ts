@@ -42,6 +42,12 @@ export const paymentApi = {
     return list;
   },
   create: (a: NewPaymentAccount) => call<{ account: PaymentAccountView; challenge: Challenge }>("", "POST", a),
+  /** Carte de l'abonnement : seul le jeton du prestataire est envoyé. */
+  async addCard(token: string) {
+    const r = await call<{ account: PaymentAccountView; accounts: PaymentAccountView[]; simulated: boolean }>("/cards", "POST", { token });
+    actions.setPaymentAccounts(r.accounts);
+    return r;
+  },
   requestChange: (id: string, change: Change) => call<Challenge>(`/${id}/changes`, "POST", change),
   async confirm(challengeId: string, code: string) {
     const r = await call<{ op: string; accounts: PaymentAccountView[] }>(`/challenges/${challengeId}/confirm`, "POST", { code });

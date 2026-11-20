@@ -50,7 +50,7 @@ export default function AccountDetail() {
   const pending = a.status === "PENDING";
   return (
     <SubScreen
-      title={a.purpose === "SUBSCRIPTION" ? "Paiement de l'abonnement" : "Compte de réception"}
+      title={a.kind === "CARD" ? "Carte de l'abonnement" : a.purpose === "SUBSCRIPTION" ? "Paiement de l'abonnement" : "Compte de réception"}
       footer={
         pending ? (
           <Button label="Vérifier ce compte" onPress={() => ask({ op: "VERIFY" })} />
@@ -71,6 +71,7 @@ export default function AccountDetail() {
 
       <SettingsGroup>
         <InfoRow title="Titulaire" value={a.holder} />
+        {a.expiry ? <InfoRow title="Expiration" value={a.expiry} /> : null}
         <InfoRow title="Ajouté le" value={fr(a.createdAt)} />
         {a.verifiedAt ? <InfoRow title="Vérifié le" value={fr(a.verifiedAt)} /> : null}
       </SettingsGroup>
@@ -96,7 +97,7 @@ export default function AccountDetail() {
         </Text>
       )}
 
-      <SettingsGroup footer="Pour changer de numéro ou d'IBAN, ajoutez un nouveau compte puis supprimez celui-ci.">
+      <SettingsGroup footer={a.kind === "CARD" ? "Pour changer de carte, ajoutez-en une nouvelle depuis Mon abonnement." : "Pour changer de numéro ou d'IBAN, ajoutez un nouveau compte puis supprimez celui-ci."}>
         <ActionRow title="Supprimer ce compte" destructive onPress={remove} />
       </SettingsGroup>
 

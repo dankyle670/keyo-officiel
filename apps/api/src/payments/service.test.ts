@@ -70,3 +70,22 @@ test("abonnement : un seul moyen ; le nouveau remplace l'ancien une fois vérifi
   assert.deepEqual(subs.map((x) => x.id), [b.account.id]);
   await rejects(svc.create(O, { kind: "BANK", purpose: "SUBSCRIPTION", bankName: "SGBCI", iban: "FR7630006000011234567890189", holder: "Daniel" }), 400);
 });
+
+const cardToken = (d: object) => `tok_sim_${Buffer.from(JSON.stringify(d)).toString("base64url")}`;
+
+test("carte d'abonnement : seul le jeton arrive ; masquée ; remplace le moyen précédent ; expirée refusée", async () => {
+  const { svc, store } = setup();
+  const mm = await svc.create(O, { ...wave, purpose: "SUBSCRIPTION" });
+  await svc.confirm(O, mm.challenge.challengeId, SIMULATED_CODE);
+  const r = await svc.addCard(O, { token: cardToken({ brand: "VISA", last4: "4242", expMonth: 8, expYear: 2028 }) });
+  assert.equal(r.account.label, "Visa");
+  assert.equal(r.account.masked, "•••• 4242");
+  assert.equal(r.account.expiry, "08/28");
+  assert.equal(r.account.status, "VERIFIED");
+  const subs = (await svc.list(O)).filter((a) => a.purpose === "SUBSCRIPTION");
+  assert.deepEqual(subs.map((a) => a.kind), ["CARD"], "la carte remplace le Mobile Money de l'abonnement");
+  assert.ok(!JSON.stringify(await store.all(O)).includes("pm_sim_"), "référence du prestataire chiffrée");
+  await rejects(svc.addCard(O, { token: cardToken({ brand: "VISA", last4: "1111", expMonth: 1, expYear: 2025 }) }), 400);
+  await rejects(svc.addCard(O, { token: "4242424242424242" }), 400);
+  assert.equal(await svc.receivingFor(O, "villa"), undefined, "une carte ne sert jamais à recevoir les loyers");
+});

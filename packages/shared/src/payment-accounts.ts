@@ -64,7 +64,9 @@ export type NewPaymentAccount = z.input<typeof NewPaymentAccount>;
 export type PaymentAccountView = {
   id: string;
   purpose: PaymentPurpose;
-  kind: "MOBILE_MONEY" | "BANK";
+  kind: "MOBILE_MONEY" | "BANK" | "CARD";
+  /** Carte : « 08/28 ». */
+  expiry?: string;
   label: string;
   masked: string;
   holder: string;
@@ -102,3 +104,43 @@ export function holderMatches(holderName: string, ownerName: string): boolean {
   const h = new Set(words(holderName));
   return words(ownerName).some((w) => h.has(w));
 }
+
+/**
+ * Cartes bancaires, pour l'abonnement Keyo uniquement. Le numéro et le cryptogramme sont saisis
+ * dans le formulaire du prestataire de paiement (Stripe, CinetPay) et ne parviennent jamais à
+ * Keyo : le serveur ne reçoit qu'un jeton, et le prestataire lui renvoie marque, 4 derniers
+ * chiffres et expiration.
+ */
+export const CARD_BRANDS = ["VISA", "MASTERCARD", "AMEX", "OTHER"] as const;
+export type CardBrand = (typeof CARD_BRANDS)[number];
+export const CARD_BRAND_LABEL: Record<CardBrand, string> = { VISA: "Visa", MASTERCARD: "Mastercard", AMEX: "American Express", OTHER: "Carte" };
+
+export function cardBrand(number: string): CardBrand {
+  const d = number.replace(/\D/g, "");
+  if (/^4/.test(d)) return "VISA";
+  if (/^(5[1-5]|2(2[2-9]|[3-6]\d|7[01]|720))/.test(d)) return "MASTERCARD";
+  if (/^3[47]/.test(d)) return "AMEX";
+  return "OTHER";
+}
+
+/** Clé de Luhn : écarte les fautes de frappe avant d'appeler le prestataire. */
+export function luhnValid(number: string): boolean {
+  const d = number.replace(/\D/g, "");
+  if (d.length < 13 || d.length > 19) return false;
+  let sum = 0;
+  for (let i = 0; i < d.length; i++) {
+    let n = Number(d[d.length - 1 - i]);
+    if (i % 2 === 1) {
+      n *= 2;
+      if (n > 9) n -= 9;
+    }
+    sum += n;
+  }
+  return sum % 10 === 0;
+}
+
+/** Carte expirée à la fin de son mois d'expiration. */
+export const cardExpired = (expMonth: number, expYear: number, today: string) => `${expYear}-${String(expMonth).padStart(2, "0")}` < today.slice(0, 7);
+
+/** Ce que le prestataire renvoie pour une carte enregistrée. */
+export type CardDetails = { brand: CardBrand; last4: string; expMonth: number; expYear: number };

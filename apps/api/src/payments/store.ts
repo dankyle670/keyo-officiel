@@ -5,8 +5,10 @@ import type { MobileMoneyOperator, PaymentAccountStatus, PaymentPurpose } from "
 export type PaymentAccountRecord = {
   id: string;
   purpose: PaymentPurpose;
-  kind: "MOBILE_MONEY" | "BANK";
+  kind: "MOBILE_MONEY" | "BANK" | "CARD";
   operator?: MobileMoneyOperator;
+  /** Carte : « 08/28 » ; la référence du prestataire est dans `sealed`. */
+  expiry?: string;
   bankName?: string;
   sealed: string;
   fingerprint: string;

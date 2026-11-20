@@ -1,5 +1,6 @@
 import { createHash, randomInt } from "node:crypto";
-import { holderMatches, maskAccount, NewPaymentAccount, receivingAccountFor, type PaymentAccountView } from "@keyo/shared";
+import { CARD_BRAND_LABEL, cardExpired, holderMatches, maskAccount, NewPaymentAccount, receivingAccountFor, type PaymentAccountView } from "@keyo/shared";
+import { CardError, SimulatedCardProvider, type CardProvider } from "./cards.ts";
 import { z } from "zod";
 import { fingerprint, seal } from "./crypto.ts";
 import type { PaymentAccountRecord, PaymentAccountStore } from "./store.ts";
@@ -53,6 +54,7 @@ const view = (r: PaymentAccountRecord): PaymentAccountView => ({
   createdAt: r.createdAt,
   verifiedAt: r.verifiedAt,
   warning: r.warning,
+  expiry: r.expiry,
 });
 
 /**
@@ -67,7 +69,47 @@ export class PaymentAccountsService {
     private readonly sms: CodeSender = new SimulatedCodeSender(),
     private readonly ownerName: (ownerId: string) => string | undefined = () => undefined,
     private readonly now: () => number = () => Date.now(),
+    private readonly cards: CardProvider = new SimulatedCardProvider(),
   ) {}
+
+  /**
+   * Carte pour l'abonnement : le jeton du prestataire est échangé contre une carte réutilisable.
+   * Elle remplace le moyen de paiement précédent de l'abonnement. Pas de code SMS : la banque
+   * authentifie le porteur (3-D Secure) et la carte ne sert qu'à payer Keyo, jamais à recevoir.
+   */
+  async addCard(ownerId: string, raw: unknown) {
+    const token = (raw as { token?: unknown } | null)?.token;
+    if (typeof token !== "string" || token.length > 500) throw new PaymentError("Jeton de carte manquant.");
+    let card;
+    try {
+      card = await this.cards.resolve(token);
+    } catch (e) {
+      throw new PaymentError(e instanceof CardError ? e.message : "Le prestataire de paiement est injoignable.", e instanceof CardError ? 400 : 502);
+    }
+    const today = new Date(this.now()).toISOString().slice(0, 10);
+    if (cardExpired(card.expMonth, card.expYear, today)) throw new PaymentError("Cette carte est expirée.");
+    const all = await this.store.all(ownerId);
+    const fp = fingerprint(`card:${card.ref}`);
+    const rec: PaymentAccountRecord = {
+      id: newId("pa"),
+      purpose: "SUBSCRIPTION",
+      kind: "CARD",
+      sealed: seal(card.ref),
+      fingerprint: fp,
+      label: CARD_BRAND_LABEL[card.brand],
+      masked: `•••• ${card.last4}`,
+      expiry: `${String(card.expMonth).padStart(2, "0")}/${String(card.expYear).slice(-2)}`,
+      holder: this.ownerName(ownerId) ?? "Titulaire de la carte",
+      status: "VERIFIED",
+      isDefault: true,
+      assetIds: [],
+      createdAt: new Date(this.now()).toISOString(),
+      verifiedAt: new Date(this.now()).toISOString(),
+    };
+    const next = [...all.filter((x) => x.purpose !== "SUBSCRIPTION"), rec];
+    await this.store.save(ownerId, next);
+    return { account: view(rec), accounts: next.map(view), simulated: this.cards.simulated };
+  }
 
   async list(ownerId: string) {
     return (await this.store.all(ownerId)).map(view);

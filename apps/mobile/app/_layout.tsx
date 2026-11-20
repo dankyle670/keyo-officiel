@@ -79,6 +79,7 @@ export default function RootLayout() {
             <Stack.Screen name="controle" />
             <Stack.Screen name="agent/index" />
             <Stack.Screen name="encaissement/index" />
+            <Stack.Screen name="abonnement" />
             <Stack.Screen name="encaissement/ajouter" options={{ presentation: "modal" }} />
             <Stack.Screen name="encaissement/[id]" />
             <Stack.Screen name="agent/autonomie" />

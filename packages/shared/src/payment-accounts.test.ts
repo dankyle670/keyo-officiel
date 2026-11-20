@@ -48,3 +48,14 @@ test("contrôle de gestion : bien loué sans compte de réception", async () => 
   assert.ok(runAudit({ ...base, paymentAccounts: [] }).findings.some((f) => f.id === "payout-none"));
   assert.ok(!runAudit({ ...base, paymentAccounts: [{ purpose: "RECEIVE", status: "VERIFIED", isDefault: true, assetIds: [] }] }).findings.some((f) => f.area === "PAYMENTS"));
 });
+
+test("cartes : marque, clé de Luhn, expiration", async () => {
+  const { cardBrand, luhnValid, cardExpired } = await import("./payment-accounts.ts");
+  assert.equal(cardBrand("4242 4242 4242 4242"), "VISA");
+  assert.equal(cardBrand("5555 5555 5555 4444"), "MASTERCARD");
+  assert.equal(cardBrand("3782 822463 10005"), "AMEX");
+  assert.ok(luhnValid("4242 4242 4242 4242"));
+  assert.ok(!luhnValid("4242 4242 4242 4241"));
+  assert.ok(!cardExpired(11, 2026, "2026-11-20"));
+  assert.ok(cardExpired(10, 2026, "2026-11-20"));
+});

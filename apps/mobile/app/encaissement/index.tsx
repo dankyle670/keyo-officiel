@@ -77,12 +77,8 @@ export default function Encaissement() {
         <ToggleRow title="Virement" value={settings.paymentMethods.bankTransfer} onChange={(v) => set({ bankTransfer: v })} />
       </SettingsGroup>
 
-      <SettingsGroup title="Abonnement Keyo" footer="Le moyen avec lequel vous réglez votre abonnement. Distinct de vos comptes de réception.">
-        {sub ? (
-          <AccountRow account={sub} detail={sub.holder} onPress={() => router.push({ pathname: "/encaissement/[id]", params: { id: sub.id } })} />
-        ) : (
-          <NavRow icon={CreditCard} tint="mintTint" ink="mintDeep" title="Ajouter un moyen de paiement" value="Mobile Money" onPress={() => router.push({ pathname: "/encaissement/ajouter", params: { purpose: "SUBSCRIPTION" } })} />
-        )}
+      <SettingsGroup>
+        <NavRow icon={CreditCard} tint="mintTint" ink="mintDeep" title="Payer mon abonnement Keyo" value={sub ? `${sub.label} ${sub.masked}` : "Carte ou Mobile Money"} onPress={() => router.push("/abonnement")} />
       </SettingsGroup>
     </SubScreen>
   );
