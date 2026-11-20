@@ -20,6 +20,7 @@ export const TOOL_TIER: Record<AgentToolName, ModelTier> = {
   get_incidents: "FAST",
   get_documents: "FAST",
   get_craftsmen: "FAST",
+  get_payment_accounts: "FAST",
   get_capabilities: "FAST",
   get_autonomous_activity: "FAST",
   get_monthly_report: "FAST",

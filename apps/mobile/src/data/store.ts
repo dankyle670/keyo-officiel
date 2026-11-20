@@ -9,6 +9,7 @@ import {
   type Asset,
   type AssetShare,
   type AppraisalAnswers,
+  type PaymentAccountView,
   type AppraisalResult,
   type Holding,
   type AssetEvent,
@@ -89,6 +90,8 @@ export type OwnerState = {
   notificationsReadAt: string;
   /** Avis des agents autonomes (rappels, rapports, actions faites), reçus du serveur. */
   agentNotices: AgentNotice[];
+  /** Comptes de paiement (masqués), copie du serveur ; absent tant qu'ils n'ont pas été chargés. */
+  paymentAccounts?: PaymentAccountView[];
 };
 
 export type AgentNotice = { id: string; at: string; title: string; body: string; href?: string };
@@ -482,6 +485,11 @@ export const actions = {
       ...s,
       events: s.events.map((e) => (e.id === eventId ? { ...e, status: "RESOLVED", resolvedAt: nowIso() } : e)),
     }));
+  },
+
+  /** Copie locale des comptes de paiement, rafraîchie depuis le serveur. */
+  setPaymentAccounts(paymentAccounts: PaymentAccountView[]) {
+    setState((s) => ({ ...s, paymentAccounts }));
   },
 
   sendMessage(partyId: string, text: string) {

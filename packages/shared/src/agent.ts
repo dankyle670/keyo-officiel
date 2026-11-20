@@ -298,6 +298,13 @@ export const AGENT_TOOLS = {
       managerPhone: z.string().optional(),
     }),
   },
+  get_payment_accounts: {
+    kind: "read",
+    label: "Consultation des comptes de paiement",
+    description:
+      "Comptes du propriétaire : où arrivent les loyers payés en ligne (Mobile Money, banque ; par défaut ou par bien) et moyen de paiement de l'abonnement Keyo. Numéros masqués. Lecture seule : vous ne pouvez ni ajouter, ni modifier, ni supprimer un compte ; renvoyez le propriétaire vers Profil, Recevoir mes loyers (vérification par code SMS).",
+    input: z.object({}),
+  },
   get_craftsmen: {
     kind: "read",
     label: "Consultation des artisans",

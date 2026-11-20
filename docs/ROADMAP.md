@@ -185,6 +185,8 @@ Owner (propriétaire)
 **Objectif :** un propriétaire de la diaspora encaisse les loyers d'un locataire à Abidjan sans passer un seul appel.
 - [ ] Biens, lots, baux, invitation du locataire
 - [ ] Échéancier des loyers généré à partir du bail
+- [x] Comptes de réception du propriétaire (Mobile Money, banque ; par bien), vérifiés par code SMS, chiffrés
+- [x] Moyen de paiement de l'abonnement Keyo (Mobile Money ; carte avec Stripe ensuite)
 - [ ] Paiement Mobile Money (CinetPay ou PayDunya) + webhooks + lien SMS de secours
 - [ ] Statuts des loyers (à venir, payé, en retard, partiel) calculés par une tâche quotidienne
 - [ ] Relances automatiques (push puis SMS), rédigées avec un ton progressif

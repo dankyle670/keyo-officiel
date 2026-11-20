@@ -23,6 +23,17 @@ export class ActionGate {
 
   private today = () => this.clock().toISOString().slice(0, 10);
 
+  /**
+   * Compte de réception vérifié pour ce bien ? Sans compte, aucun lien de paiement n'est envoyé
+   * (branché sur les comptes de paiement du propriétaire ; absent dans les tests unitaires).
+   */
+  payoutReady?: (ownerId: string, assetId: string) => Promise<boolean>;
+
+  private async payoutCheck(ownerId: string, action: string, assetId?: string): Promise<string | undefined> {
+    if (action !== "send_payment_link" || !this.payoutReady || !assetId) return undefined;
+    return (await this.payoutReady(ownerId, assetId)) ? undefined : "Aucun compte de réception vérifié pour ce bien : à ajouter dans Profil > Recevoir mes loyers.";
+  }
+
   async propose(p: { ownerId: string; runId?: string; specialist: Specialist; action: string; input: unknown }): Promise<GateOutcome> {
     if (!isAutonomousAction(p.action)) return { status: "INVALID", reason: "Action hors du catalogue : interdite." };
     const s = this.store.getSnapshot(p.ownerId);
@@ -30,6 +41,8 @@ export class ActionGate {
     const prep = prepare(p.action, p.input, s, this.today());
     if (!prep.ok) return { status: "INVALID", reason: prep.error };
     const v = prep.value;
+    const noPayout = await this.payoutCheck(p.ownerId, p.action, v.assetId);
+    if (noPayout) return { status: "INVALID", reason: noPayout };
     if (v.dedupeKey) {
       const since = v.dedupeDays ? new Date(this.clock().getTime() - v.dedupeDays * 86_400_000).toISOString() : "";
       const prev = this.store.findByDedupe(p.ownerId, v.dedupeKey, since);
@@ -93,6 +106,11 @@ export class ActionGate {
     if (!prep.ok) {
       this.store.updateAction(a.id, { status: "FAILED", reason: `N'est plus d'actualité : ${prep.error}` });
       return { status: "FAILED", actionId: a.id, summary: a.summary, reason: prep.error };
+    }
+    const noPayout = await this.payoutCheck(a.ownerId, a.action, prep.value.assetId);
+    if (noPayout) {
+      this.store.updateAction(a.id, { status: "FAILED", reason: noPayout });
+      return { status: "FAILED", actionId: a.id, summary: a.summary, reason: noPayout };
     }
     return this.decideAndRun(a, a.action, prep.value, approved);
   }

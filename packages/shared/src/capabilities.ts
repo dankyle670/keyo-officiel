@@ -13,6 +13,7 @@ export const CAPABILITY_GROUPS: { domain: string; entries: Entry[] }[] = [
     domain: "Loyers et encaissement",
     entries: [
       { what: "Suivre les échéances du mois (payé, en retard, partiel)", tool: "get_rents" },
+      { what: "Vous dire où arrivent vos loyers et quel bien n'a pas de compte de réception", tool: "get_payment_accounts" },
       { what: "Relancer un locataire en retard (courtoise, ferme, dernier rappel)", tool: "send_reminder", channels: ["WHATSAPP", "SMS"] },
       { what: "Relancer seul les retards", auto: "send_rent_reminder" },
       { what: "Envoyer un lien de paiement", auto: "send_payment_link" },
@@ -100,7 +101,7 @@ export const CAPABILITY_GROUPS: { domain: string; entries: Entry[] }[] = [
 ];
 
 /** Ce qui reste interdit, quel que soit le réglage. */
-export const NEVER_DOES = ["déplacer de l'argent", "signer à votre place", "résilier un contrat", "engager une procédure judiciaire"];
+export const NEVER_DOES = ["ajouter, modifier ou supprimer vos comptes de paiement", "déplacer de l'argent", "signer à votre place", "résilier un contrat", "engager une procédure judiciaire"];
 
 export type CapabilityStatus = "READY" | "READY_SIMULATED" | "ASKS_YOU" | "OFF";
 export type Capability = { what: string; mode: "Sur demande" | "Seul"; status: CapabilityStatus; note?: string };

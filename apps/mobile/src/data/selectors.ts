@@ -79,7 +79,8 @@ export const isOpenEvent = (e: AssetEvent) => e.status !== "RESOLVED";
 /** Ce qui demande une action au propriétaire : retards et incidents en attente de décision. */
 export type TodoItem =
   | { kind: "late"; id: string; title: string; subtitle: string; amount: Money; assetId: string; agreementId: string }
-  | { kind: "event"; id: string; title: string; subtitle: string; eventId: string; category: string };
+  | { kind: "event"; id: string; title: string; subtitle: string; eventId: string; category: string }
+  | { kind: "payout"; id: string; title: string; subtitle: string };
 
 export function todoItems(s: OwnerState, month: string, today: string, currency: Currency): TodoItem[] {
   const late = monthSummary(s, month, today, currency).late.map(
@@ -107,7 +108,13 @@ export function todoItems(s: OwnerState, month: string, today: string, currency:
         subtitle: asset.name,
       };
     });
-  return [...late, ...pending];
+  // Sans compte de réception vérifié, aucun loyer ne peut être payé en ligne : à traiter en premier.
+  const rented = s.agreements.some((a) => a.kind === "LEASE" && a.startDate <= today && (!a.endDate || a.endDate >= today));
+  const payout: TodoItem[] =
+    s.paymentAccounts && rented && !s.paymentAccounts.some((a) => a.purpose === "RECEIVE" && a.status === "VERIFIED")
+      ? [{ kind: "payout", id: "payout", title: "Ajoutez votre compte de réception", subtitle: "Pour encaisser les loyers en ligne" }]
+      : [];
+  return [...payout, ...late, ...pending];
 }
 
 /** Statut affiché sur la carte et dans la liste des biens. */

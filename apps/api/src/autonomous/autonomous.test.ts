@@ -209,3 +209,14 @@ test("WhatsApp : requête à l'API Cloud, numéro nettoyé ; refus remonté", as
   const refused = new WhatsAppCloudConnector("tok", "123", undefined, (async () => new Response("{}", { status: 401 })) as typeof fetch);
   assert.equal((await refused.send({ channel: "WHATSAPP", to: "+1", text: "x" })).ok, false);
 });
+
+test("lien de paiement refusé tant que le bien n'a pas de compte de réception vérifié", async () => {
+  const { gate } = setup();
+  const input = { scheduleItemId: "s-late", message: "Voici le lien pour régler" };
+  gate.payoutReady = async () => false;
+  const refused = await gate.propose({ ownerId: OWNER, specialist: "COLLECTION", action: "send_payment_link", input });
+  assert.equal(refused.status, "INVALID");
+  assert.match((refused as { reason: string }).reason, /compte de réception/);
+  gate.payoutReady = async () => true;
+  assert.notEqual((await gate.propose({ ownerId: OWNER, specialist: "COLLECTION", action: "send_payment_link", input })).status, "INVALID");
+});

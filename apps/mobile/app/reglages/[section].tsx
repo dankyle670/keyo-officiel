@@ -8,13 +8,12 @@ import { session, useSettings, useUser, type Settings } from "@/data/session";
 import { actions, getOwnerState, useOwnerState } from "@/data/store";
 import { ActionRow, Button, CurrencySelect, InfoRow, NavRow, Segmented, SettingsGroup, SubScreen, Text, TextField, ToggleRow } from "@/ui";
 
-export type SettingsSection = "compte" | "securite" | "relances" | "encaissement" | "agent" | "preferences" | "notifications" | "donnees";
+export type SettingsSection = "compte" | "securite" | "relances" | "agent" | "preferences" | "notifications" | "donnees";
 
 const TITLES: Record<SettingsSection, { title: string; subtitle?: string }> = {
   compte: { title: "Informations", subtitle: "Votre identité dans Keyo" },
   securite: { title: "Sécurité" },
   relances: { title: "Relances", subtitle: "Quand un loyer n'est pas reçu à temps" },
-  encaissement: { title: "Encaissement", subtitle: "Moyens proposés à vos occupants" },
   agent: { title: "Agent Keyo", subtitle: "Comment l'agent travaille pour vous" },
   preferences: { title: "Préférences" },
   notifications: { title: "Notifications", subtitle: "Ce que Keyo vous signale" },
@@ -77,15 +76,6 @@ function Section({ section }: { section: SettingsSection }) {
             />
           </SettingsGroup>
         </>
-      );
-
-    case "encaissement":
-      return (
-        <SettingsGroup footer="Les paiements passent par notre partenaire de paiement agréé et arrivent directement chez vous. Keyo ne détient jamais vos fonds.">
-          <ToggleRow title="Mobile Money" subtitle="Orange Money, MTN, Moov, Wave." value={settings.paymentMethods.mobileMoney} onChange={(v) => set({ paymentMethods: { ...settings.paymentMethods, mobileMoney: v } })} />
-          <ToggleRow title="Carte bancaire" value={settings.paymentMethods.card} onChange={(v) => set({ paymentMethods: { ...settings.paymentMethods, card: v } })} />
-          <ToggleRow title="Virement" value={settings.paymentMethods.bankTransfer} onChange={(v) => set({ paymentMethods: { ...settings.paymentMethods, bankTransfer: v } })} />
-        </SettingsGroup>
       );
 
     case "agent":

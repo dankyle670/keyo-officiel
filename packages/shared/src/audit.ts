@@ -1,3 +1,4 @@
+import { receivingAccountFor, type PaymentAccountView } from "./payment-accounts.ts";
 import type { Agreement, Asset, AssetEvent, AssetShare, AssetUnit, Document, MaintenancePlan, Mission, Party, ScheduleItem } from "./domain.ts";
 import { formatMoney } from "./money.ts";
 import { cap, profileOf } from "./modules/catalog.ts";
@@ -38,6 +39,8 @@ export type AuditInput = {
   maintenance?: MaintenancePlan[];
   missions?: Mission[];
   shares?: AssetShare[];
+  /** Comptes de paiement du propriétaire ; absent = inconnu, le point n'est pas contrôlé. */
+  paymentAccounts?: Pick<PaymentAccountView, "purpose" | "status" | "isDefault" | "assetIds">[];
   /** Date du jour (AAAA-MM-JJ). */
   today: string;
 };
@@ -289,6 +292,32 @@ export function runAudit(input: AuditInput): AuditReport {
       detail: `${m.title} (${asset(m.assetId)?.name ?? ""}), prévue le ${m.dueDate}.`,
       assetId: m.assetId,
     });
+  }
+
+  // Encaissement en ligne : chaque bien loué doit avoir un compte de réception vérifié.
+  if (input.paymentAccounts) {
+    const rented = [...new Set(current.map((a) => a.assetId))];
+    const without = rented.filter((id) => !receivingAccountFor(input.paymentAccounts!, id));
+    const none = !input.paymentAccounts.some((a) => a.purpose === "RECEIVE" && a.status === "VERIFIED");
+    if (none && rented.length)
+      out.push({
+        id: "payout-none",
+        severity: "HIGH",
+        area: "PAYMENTS",
+        title: "Aucun compte de réception vérifié",
+        detail: "Vos occupants ne peuvent pas payer en ligne : ajoutez un compte Mobile Money ou bancaire dans Profil, Recevoir mes loyers.",
+        fix: { label: "Comment faire", prompt: "Comment ajouter le compte sur lequel je reçois mes loyers ?" },
+      });
+    else
+      for (const id of without)
+        out.push({
+          id: `payout-${id}`,
+          severity: "MEDIUM",
+          area: "PAYMENTS",
+          title: "Bien sans compte de réception",
+          detail: `${asset(id)?.name ?? "Ce bien"} n'a pas de compte de réception attribué et vous n'avez pas de compte par défaut.`,
+          assetId: id,
+        });
   }
 
   out.sort((x, y) => RANK[x.severity] - RANK[y.severity]);

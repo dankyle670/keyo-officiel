@@ -1,8 +1,9 @@
-import { capabilities, NEVER_DOES, AUTONOMY_LEVEL_LABEL, actionDef, isAutonomousAction, SPECIALIST_LABEL, AGENT_TOOLS, borrowingCapacity, PASSPORT_LEVEL_LABEL, appraisalKind, appraisalQuestions, appraise, AUDIT_AREA_LABEL, CONFIDENCE_LABEL, formatMoney, formatShare, isAgentTool, kindLabel, money, profileOf, valueAsset, type AgentToolInput, type AgentToolName, type Currency } from "@keyo/shared";
+import { receivingAccountFor, PAYMENT_ACCOUNT_STATUS_LABEL, capabilities, NEVER_DOES, AUTONOMY_LEVEL_LABEL, actionDef, isAutonomousAction, SPECIALIST_LABEL, AGENT_TOOLS, borrowingCapacity, PASSPORT_LEVEL_LABEL, appraisalKind, appraisalQuestions, appraise, AUDIT_AREA_LABEL, CONFIDENCE_LABEL, formatMoney, formatShare, isAgentTool, kindLabel, money, profileOf, valueAsset, type AgentToolInput, type AgentToolName, type Currency } from "@keyo/shared";
 import { currentMonth, monthName, nowIso, today } from "@/data/period";
 import { passportOf, assetHolders, assetSummary, auditReport, familyAssets, familyHolders, formatPermille, isOpenEvent, latestAppraisal, monthSummary, partyName, portfolioValue, yearFinance } from "@/data/selectors";
 import { getSession, getSettings } from "@/data/session";
 import { actions, getOwnerState } from "@/data/store";
+import { refreshPaymentAccounts } from "@/payments/api";
 import { agentMode, postOps, type TurnContext } from "./api";
 import { getAttachment } from "./conversation";
 import { autonomousApi } from "@/autonomous/api";
@@ -427,6 +428,23 @@ const EXECUTORS: { [N in AgentToolName]: Executor<N> } = {
         quotes: e.quotes.map((q) => ({ quoteId: q.id, provider: q.provider, rating: q.rating, amount: formatMoney(q.amount), slot: q.slot })),
       },
       `${e.quotes.length} devis de démonstration (fictifs)`,
+    );
+  },
+  async get_payment_accounts() {
+    const s = getOwnerState();
+    const list = (await refreshPaymentAccounts()) ?? s.paymentAccounts;
+    if (!list) return fail("Comptes de paiement indisponibles : serveur Keyo injoignable.");
+    const receive = list.filter((a) => a.purpose === "RECEIVE");
+    const sub = list.find((a) => a.purpose === "SUBSCRIPTION");
+    const assetName = (id: string) => s.assets.find((x) => x.id === id)?.name ?? id;
+    return ok(
+      {
+        receivingAccounts: receive.map((a) => ({ account: `${a.label} ${a.masked}`, holder: a.holder, status: PAYMENT_ACCOUNT_STATUS_LABEL[a.status], isDefault: a.isDefault, assets: a.assetIds.map(assetName), warning: a.warning })),
+        assetsWithoutAccount: s.assets.filter((x) => !receivingAccountFor(list, x.id)).map((x) => x.name),
+        subscription: sub ? { account: `${sub.label} ${sub.masked}`, status: PAYMENT_ACCOUNT_STATUS_LABEL[sub.status] } : null,
+        note: "Lecture seule. Pour ajouter, modifier ou supprimer un compte : Profil, Recevoir mes loyers (code SMS). Keyo ne détient jamais les fonds.",
+      },
+      `${receive.filter((a) => a.status === "VERIFIED").length} compte${receive.length > 1 ? "s" : ""} de réception vérifié${receive.length > 1 ? "s" : ""}`,
     );
   },
   get_craftsmen() {

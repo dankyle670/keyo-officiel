@@ -19,7 +19,7 @@ export default function Profile() {
   const name = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim();
   const notifOn = Object.values(settings.notifications).filter(Boolean).length;
   const notifTotal = Object.values(settings.notifications).length;
-  const methods = [settings.paymentMethods.mobileMoney && "Mobile Money", settings.paymentMethods.card && "carte", settings.paymentMethods.bankTransfer && "virement"].filter(Boolean).join(", ");
+  const payout = useOwnerState((s) => (s.paymentAccounts ?? []).find((a) => a.purpose === "RECEIVE" && a.status === "VERIFIED" && a.isDefault));
 
   const signOut = () =>
     Alert.alert("Se déconnecter ?", "Vos données restent enregistrées sur ce téléphone.", [
@@ -48,7 +48,7 @@ export default function Profile() {
         <NavRow icon={Landmark} tint="mintTint" ink="mintDeep" title="Passeport propriétaire" value="Crédit et banque" onPress={() => router.push("/passeport")} />
         <NavRow icon={Users} tint="mintTint" ink="mintDeep" title="Famille et patrimoine" value={familyCount ? `${familyCount} proche${familyCount > 1 ? "s" : ""}` : "Inviter"} onPress={() => router.push("/famille")} />
         <NavRow icon={Send} tint="amberTint" ink="amber" title="Relances" value={user.autoReminders ? "Automatiques" : "Désactivées"} onPress={() => open("relances")} />
-        <NavRow icon={Wallet} tint="amberTint" ink="amber" title="Encaissement" value={methods || "Aucun moyen"} onPress={() => open("encaissement")} />
+        <NavRow icon={Wallet} tint="amberTint" ink="amber" title="Recevoir mes loyers" value={payout ? `${payout.label} ${payout.masked}` : "À configurer"} onPress={() => router.push("/encaissement")} />
         <NavRow icon={Bot} tint="amberTint" ink="amber" title="Agent Keyo" value="Accord et autonomie" onPress={() => open("agent")} />
       </SettingsGroup>
 

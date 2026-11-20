@@ -178,6 +178,16 @@ export default function OwnerHome() {
                   trailing={<Amount value={t.amount} variant="rowTitle" />}
                   onPress={() => router.push(`/bail/${t.agreementId}`)}
                 />
+              ) : t.kind === "payout" ? (
+                <ListRow
+                  key={t.id}
+                  divider={i > 0}
+                  leading={<IconCircle icon={Landmark} bg="mintTint" fg="mintDeep" />}
+                  title={t.title}
+                  subtitle={t.subtitle}
+                  chevron
+                  onPress={() => router.push("/encaissement")}
+                />
               ) : (
                 <ListRow
                   key={t.id}
