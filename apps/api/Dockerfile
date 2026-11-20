@@ -16,6 +16,8 @@ COPY packages/shared packages/shared
 COPY apps/api apps/api
 
 WORKDIR /repo/apps/api
+RUN npx prisma generate
 EXPOSE 3000
 # Variables (ANTHROPIC_API_KEY…) fournies par docker-compose via apps/api/.env.
-CMD ["npx", "tsx", "watch", "src/main.ts"]
+# Migrations appliquées au démarrage si DATABASE_URL est défini.
+CMD ["sh", "-c", "if [ -n \"$DATABASE_URL\" ]; then npx prisma migrate deploy; fi; npx tsx watch src/main.ts"]

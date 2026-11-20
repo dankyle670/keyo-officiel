@@ -1,5 +1,6 @@
 import Constants from "expo-constants";
 import type { AuditFinding } from "@keyo/shared";
+import { getSession } from "@/data/session";
 
 /**
  * Accès au serveur Keyo (apps/api). En développement, l'API tourne sur la même machine que Metro :
@@ -19,7 +20,16 @@ export type ContentBlock =
   | { type: "text"; text: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
   | { type: string; [k: string]: unknown };
-export type TurnResponse = { content: ContentBlock[]; stop_reason: string | null; model?: string; tier?: "FAST" | "STANDARD" | "EXPERT" };
+export type TurnResponse = {
+  content: ContentBlock[];
+  stop_reason: string | null;
+  model?: string;
+  tier?: "FAST" | "STANDARD" | "EXPERT";
+  /** Abonnement en lecture seule : l'agent n'agit plus. */
+  locked?: boolean;
+  /** stop_reason « expert_quota » : analyses d'expert de la formule épuisées, accord requis. */
+  quota?: { remaining: number; included: number; extraPrice: { amount: number; currency: string } };
+};
 export type OpsReview = { verdict: string; priorities: { findingId: string; why: string; nextStep: string }[] };
 
 export class AgentUnavailable extends Error {}
@@ -30,7 +40,9 @@ async function call<T>(path: string, init: RequestInit = {}, timeoutMs = 90_000)
   // Arrêt demandé par le propriétaire (bouton Arrêter du chat).
   init.signal?.addEventListener("abort", () => ctrl.abort());
   try {
-    const res = await fetch(`${apiBase()}${path}`, { ...init, signal: ctrl.signal, headers: { "content-type": "application/json" } });
+    const s = getSession();
+    const owner = s.status === "signedIn" ? s.user.id.replace(/[^\w-]/g, "").slice(0, 64) : "";
+    const res = await fetch(`${apiBase()}${path}`, { ...init, signal: ctrl.signal, headers: { "content-type": "application/json", ...(owner ? { "x-keyo-owner": owner } : {}) } });
     const body = await res.json().catch(() => ({}));
     if (res.status === 503 && body?.mode === "demo") throw new AgentUnavailable("demo");
     if (!res.ok) throw new Error(typeof body?.error === "string" ? body.error : "L'agent est momentanément indisponible.");
@@ -51,8 +63,8 @@ export async function agentMode(): Promise<{ mode: "claude" | "demo"; reachable:
 }
 
 /** `tier` : palier de modèle déjà atteint dans la demande en cours (le serveur ne redescend pas). */
-export const postTurn = (messages: ApiMessage[], context: TurnContext, signal?: AbortSignal, tier?: TurnResponse["tier"]) =>
-  call<TurnResponse>("/agent/turn", { method: "POST", body: JSON.stringify({ messages, context, tier }), signal });
+export const postTurn = (messages: ApiMessage[], context: TurnContext, signal?: AbortSignal, tier?: TurnResponse["tier"], expertConsent?: boolean) =>
+  call<TurnResponse>("/agent/turn", { method: "POST", body: JSON.stringify({ messages, context, tier, expertConsent }), signal });
 
 export const postOps = (findings: AuditFinding[], score: number, context: TurnContext) =>
   call<OpsReview>("/agent/ops", {

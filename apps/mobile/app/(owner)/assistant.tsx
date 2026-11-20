@@ -74,7 +74,7 @@ export default function Agent() {
   const [userMenu, setUserMenu] = useState<Extract<FeedItem, { kind: "user" }>>();
   const params = useLocalSearchParams<{ prompt?: string; k?: string }>();
   const handled = useRef<string | undefined>(undefined);
-  const waiting = c.feed.some((f) => f.kind === "proposal" && f.status === "pending");
+  const waiting = c.feed.some((f) => (f.kind === "proposal" || f.kind === "quota") && f.status === "pending");
   const canSend = (input.trim().length > 0 || files.length > 0) && !c.busy && !waiting;
   const lastAgent = [...c.feed].reverse().find((f) => f.kind === "agent")?.id;
 
@@ -746,6 +746,23 @@ function Item({
               <Text variant="caption" tone="inkMuted" style={{ flex: 1 }}>
                 {item.result}
               </Text>
+            </View>
+          ) : null}
+        </View>
+      );
+    }
+    case "quota": {
+      const pending = item.status === "pending";
+      return (
+        <View style={{ marginTop: 14, backgroundColor: color.surfaceRaised, borderRadius: radius.card, padding: 16, gap: 12, borderWidth: 1.5, borderColor: pending ? color.mint : color.line }}>
+          <Text variant="caption" tone="inkMuted" style={{ fontFamily: fontFamily.bold }}>
+            {pending ? "Analyse d'expert supplémentaire" : item.status === "accepted" ? "Analyse lancée" : "Non lancée"}
+          </Text>
+          <Text variant="rowTitle">{item.text}</Text>
+          {pending ? (
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <Pill label="Pas maintenant" onPress={() => conversation.decideQuota(item.id, false)} disabled={busy} />
+              <Pill label="Lancer l'analyse" strong onPress={() => conversation.decideQuota(item.id, true)} disabled={busy} />
             </View>
           ) : null}
         </View>

@@ -3,6 +3,7 @@ import { AppState } from "react-native";
 import { actions, getOwnerState, subscribeOwnerState, type OwnerState } from "@/data/store";
 import type { User } from "@/data/session";
 import { conversation } from "@/agent/conversation";
+import { refreshSubscription } from "@/billing/api";
 import { refreshPaymentAccounts } from "@/payments/api";
 import { autonomousApi, setAutonomousOwner } from "./api";
 
@@ -53,6 +54,7 @@ export async function syncNow(): Promise<boolean> {
     setStatus({ reachable: true, lastSync: new Date().toISOString(), error: undefined });
     void conversation.syncWithServer();
     void refreshPaymentAccounts();
+    void refreshSubscription();
     return true;
   } catch (e) {
     setStatus({ reachable: false, error: e instanceof Error ? e.message : "Synchronisation impossible." });

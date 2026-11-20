@@ -38,7 +38,12 @@ test("tour : modèle, outils mis en cache, repli serveur, historique transmis te
   assert.equal(res?.tier, "FAST");
   assert.ok(p.tools.some((t: any) => t.name === "switch_model"));
   assert.deepEqual(p.thinking, { type: "adaptive", block_binding: { prefix_mismatch_behavior: "drop_block" } });
-  assert.deepEqual(p.messages, history);
+  // Historique transmis tel quel, avec un point de cache sur le dernier bloc (relu à moindre coût).
+  assert.deepEqual(p.messages.slice(0, -1), history.slice(0, -1));
+  const lastSent = p.messages.at(-1).content.at(-1);
+  assert.deepEqual(lastSent.cache_control, { type: "ephemeral" });
+  const { cache_control: _, ...rest } = lastSent;
+  assert.deepEqual(rest, (history.at(-1)!.content as any[]).at(-1));
   assert.ok(p.tools.length >= 15);
   assert.deepEqual(p.tools.at(-1).cache_control, { type: "ephemeral" });
   assert.equal(p.tools.filter((t: any) => t.cache_control).length, 1);
@@ -69,4 +74,40 @@ test("ops : un refus du modèle renvoie null (l'app affiche le contrôle brut)",
   const { client } = fakeClient({ stop_reason: "refusal", parsed_output: null });
   const r = await new AgentService(client).ops({ findings: [{ id: "a", severity: "LOW", area: "X", title: "t", detail: "d" }], score: 98, context });
   assert.equal(r, null);
+});
+
+test("abonnement : lecture seule bloque l'agent ; analyse d'expert hors quota demande l'accord, puis est facturée", async () => {
+  // Haiku choisit une expertise (palier Opus) ; Opus répond.
+  const replies = [
+    { content: [{ type: "tool_use", id: "t1", name: "get_valuation", input: {} }], stop_reason: "tool_use", model: "claude-haiku-5-5", usage: { input_tokens: 10, output_tokens: 5 } },
+    { content: [{ type: "text", text: "Estimation" }], stop_reason: "end_turn", model: "claude-opus-5-5", usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 1000 } },
+  ];
+  let n = 0;
+  const client = { beta: { messages: { create: async () => replies[n++ % 2] } } } as unknown as Anthropic;
+  const usage: { tier: string; expert: boolean; extraBilled: boolean; costMicroUsd: number }[] = [];
+  let allowed = true;
+  const billing = {
+    agentAllowed: async () => allowed,
+    expertAllowance: async () => ({ remaining: 0, included: 3, extraPrice: { amount: 1000, currency: "XOF" } }),
+    recordUsage: async (u: any) => void usage.push(u),
+  };
+  const svc = new AgentService(client, billing as any);
+  const body = { messages: [{ role: "user" as const, content: "Combien vaut ma villa ?" }], context };
+
+  const asked = await svc.turn(body, "proprio");
+  assert.equal(asked?.stop_reason, "expert_quota", "quota épuisé : on demande l'accord avant Opus");
+  assert.equal(usage.length, 1, "seul l'appel Haiku a été fait");
+
+  n = 0;
+  const ok = await svc.turn({ ...body, expertConsent: true }, "proprio");
+  assert.equal(ok?.stop_reason, "end_turn");
+  const opus = usage.at(-1)!;
+  assert.equal(opus.tier, "EXPERT");
+  assert.ok(opus.expert && opus.extraBilled);
+  // 10 × 4 + 5 × 20 + 1000 × 0,2 = 340 millionièmes de dollar
+  assert.equal(opus.costMicroUsd, 340);
+
+  allowed = false;
+  const locked = await svc.turn(body, "proprio");
+  assert.ok(locked && "locked" in locked && locked.locked);
 });

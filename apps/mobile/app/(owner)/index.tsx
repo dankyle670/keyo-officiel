@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Pressable, View } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Bell, ChevronRight, Plus, Search, ShieldCheck, Wallet, Landmark } from "lucide-react-native";
+import { Bell, ChevronRight, CreditCard, Plus, Search, ShieldCheck, Wallet, Landmark } from "lucide-react-native";
 import { money } from "@keyo/shared";
 import { color, radius } from "@keyo/tokens";
 import { LockMotif } from "@/brand/Logo";
@@ -177,6 +177,16 @@ export default function OwnerHome() {
                   subtitle={t.subtitle}
                   trailing={<Amount value={t.amount} variant="rowTitle" />}
                   onPress={() => router.push(`/bail/${t.agreementId}`)}
+                />
+              ) : t.kind === "subscription" ? (
+                <ListRow
+                  key={t.id}
+                  divider={i > 0}
+                  leading={<IconCircle icon={CreditCard} bg="amberTint" fg="amber" />}
+                  title={t.title}
+                  subtitle={t.subtitle}
+                  chevron
+                  onPress={() => router.push("/abonnement")}
                 />
               ) : t.kind === "payout" ? (
                 <ListRow

@@ -1,7 +1,7 @@
 import { Alert, View } from "react-native";
 import { router } from "expo-router";
 import { Bell, Bot, CreditCard, CircleHelp, Database, FileText, Fingerprint, Send, SlidersHorizontal, UserRound, Wallet, Landmark, Users } from "lucide-react-native";
-import { currencyLabel } from "@keyo/shared";
+import { currencyLabel, SUBSCRIPTION_STATUS_LABEL } from "@keyo/shared";
 import { initialsOf } from "@/data/selectors";
 import { session, useSettings, useUser } from "@/data/session";
 import { useOwnerState } from "@/data/store";
@@ -20,6 +20,7 @@ export default function Profile() {
   const notifOn = Object.values(settings.notifications).filter(Boolean).length;
   const notifTotal = Object.values(settings.notifications).length;
   const sub = useOwnerState((s) => (s.paymentAccounts ?? []).find((a) => a.purpose === "SUBSCRIPTION"));
+  const plan = useOwnerState((s) => s.subscription);
   const payout = useOwnerState((s) => (s.paymentAccounts ?? []).find((a) => a.purpose === "RECEIVE" && a.status === "VERIFIED" && a.isDefault));
 
   const signOut = () =>
@@ -42,7 +43,7 @@ export default function Profile() {
 
       <SettingsGroup title="Mon compte">
         <NavRow icon={UserRound} tint="mintTint" ink="mintDeep" title="Informations personnelles" value={name} onPress={() => open("compte")} />
-        <NavRow icon={CreditCard} tint="mintTint" ink="mintDeep" title="Mon abonnement" value={sub ? `${sub.label} ${sub.masked}` : "Ajouter une carte"} onPress={() => router.push("/abonnement")} />
+        <NavRow icon={CreditCard} tint="mintTint" ink="mintDeep" title="Mon abonnement" value={plan ? `${plan.plan ? plan.plan.name : "Sur mesure"} · ${SUBSCRIPTION_STATUS_LABEL[plan.status].toLowerCase()}` : sub ? `${sub.label} ${sub.masked}` : "Ajouter une carte"} onPress={() => router.push("/abonnement")} />
         <NavRow icon={Fingerprint} tint="mintTint" ink="mintDeep" title="Sécurité" value={settings.biometricLock ? "Face ID activé" : "Face ID désactivé"} onPress={() => open("securite")} />
       </SettingsGroup>
 

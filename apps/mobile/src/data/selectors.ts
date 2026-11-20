@@ -80,7 +80,8 @@ export const isOpenEvent = (e: AssetEvent) => e.status !== "RESOLVED";
 export type TodoItem =
   | { kind: "late"; id: string; title: string; subtitle: string; amount: Money; assetId: string; agreementId: string }
   | { kind: "event"; id: string; title: string; subtitle: string; eventId: string; category: string }
-  | { kind: "payout"; id: string; title: string; subtitle: string };
+  | { kind: "payout"; id: string; title: string; subtitle: string }
+  | { kind: "subscription"; id: string; title: string; subtitle: string };
 
 export function todoItems(s: OwnerState, month: string, today: string, currency: Currency): TodoItem[] {
   const late = monthSummary(s, month, today, currency).late.map(
@@ -114,7 +115,21 @@ export function todoItems(s: OwnerState, month: string, today: string, currency:
     s.paymentAccounts && rented && !s.paymentAccounts.some((a) => a.purpose === "RECEIVE" && a.status === "VERIFIED")
       ? [{ kind: "payout", id: "payout", title: "Ajoutez votre compte de réception", subtitle: "Pour encaisser les loyers en ligne" }]
       : [];
-  return [...payout, ...late, ...pending];
+  return [...subscriptionTodo(s, today), ...payout, ...late, ...pending];
+}
+
+/** Abonnement : fin d'essai proche sans moyen de paiement, échéance en retard, agent en pause. Message calme. */
+function subscriptionTodo(s: OwnerState, today: string): TodoItem[] {
+  const sub = s.subscription;
+  if (!sub) return [];
+  const hasMethod = (s.paymentAccounts ?? []).some((a) => a.purpose === "SUBSCRIPTION" && a.status === "VERIFIED");
+  if (sub.status === "READ_ONLY") return [{ kind: "subscription", id: "subscription", title: "Agent en pause", subtitle: "Réglez votre abonnement pour le réactiver" }];
+  if (sub.status === "PAST_DUE") return [{ kind: "subscription", id: "subscription", title: "Abonnement à régler", subtitle: "Le dernier paiement n'a pas abouti" }];
+  if (sub.status === "TRIALING" && sub.trialEndsAt && !hasMethod) {
+    const left = Math.round((Date.parse(`${sub.trialEndsAt}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
+    if (left <= 7) return [{ kind: "subscription", id: "subscription", title: left <= 1 ? "Votre essai se termine demain" : `Votre essai se termine dans ${left} jours`, subtitle: "Ajoutez une carte ou un compte Mobile Money" }];
+  }
+  return [];
 }
 
 /** Statut affiché sur la carte et dans la liste des biens. */

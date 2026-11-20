@@ -1,6 +1,6 @@
 version: "3.8"
 # Environnement de développement Keyo.
-# Plus tard : postgres, admin (Next.js).
+# Plus tard : admin (Next.js).
 services:
   mobile:
     build:
@@ -33,7 +33,10 @@ services:
     env_file: apps/api/.env
     volumes:
       - ./apps/api/src:/repo/apps/api/src
+      - ./apps/api/prisma:/repo/apps/api/prisma
       - ./packages/shared/src:/repo/packages/shared/src
+    depends_on:
+      - postgres
     # Déclencheurs des agents autonomes : ajouter REDIS_URL=redis://localhost:6379 dans apps/api/.env.
 
   # File des agents autonomes (BullMQ). Image légère, données dans un volume nommé.
@@ -45,5 +48,18 @@ services:
     volumes:
       - redis-data:/data
 
+  # Base de données Keyo (abonnements, puis biens et contrats). Image légère.
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: keyo
+      POSTGRES_PASSWORD: keyo
+      POSTGRES_DB: keyo
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
 volumes:
   redis-data:
+  postgres-data:

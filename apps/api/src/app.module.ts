@@ -12,12 +12,20 @@ import { AGENT_STORE } from "./autonomous/tokens.ts";
 import { ConversationsController, CONVERSATION_STORE } from "./conversations/conversations.controller.ts";
 import { MemoryConversationStore, RedisConversationStore } from "./conversations/store.ts";
 import { Redis } from "ioredis";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { BillingController, BILLING_PROVIDER } from "./billing/billing.controller.ts";
+import { SimulatedBillingProvider, type BillingProvider } from "./billing/provider.ts";
+import { BillingScheduler } from "./billing/scheduler.ts";
+import { BillingService } from "./billing/service.ts";
+import { MemoryBillingStore, PrismaBillingStore } from "./billing/store.ts";
+import { costOf } from "./agent/router.ts";
+import { PrismaClient } from "./generated/prisma/client.ts";
 import { PaymentAccountsController } from "./payments/payments.controller.ts";
 import { PaymentAccountsService } from "./payments/service.ts";
 import { MemoryPaymentAccountStore, RedisPaymentAccountStore } from "./payments/store.ts";
 
 @Module({
-  controllers: [AgentController, AutonomousController, ConversationsController, PaymentAccountsController],
+  controllers: [AgentController, AutonomousController, ConversationsController, PaymentAccountsController, BillingController],
   providers: [
     AgentService,
     // Sans clé, l'agent répond en mode démo (côté app) : rien ne casse en développement.
@@ -41,7 +49,30 @@ import { MemoryPaymentAccountStore, RedisPaymentAccountStore } from "./payments/
         return gate;
       },
     },
-    { provide: Orchestrator, inject: [AGENT_STORE, ActionGate, ANTHROPIC], useFactory: (s: AgentStore, g: ActionGate, a: Anthropic | null) => new Orchestrator(s, g, a) },
+    // Abonnement : PostgreSQL si DATABASE_URL, sinon mémoire. Prestataire de paiement simulé pour l'instant.
+    { provide: BILLING_PROVIDER, useFactory: () => new SimulatedBillingProvider() },
+    {
+      provide: BillingService,
+      inject: [AGENT_STORE, PaymentAccountsService, BILLING_PROVIDER],
+      useFactory: (s: AgentStore, p: PaymentAccountsService, provider: BillingProvider) => {
+        const url = process.env.DATABASE_URL;
+        const store = url ? new PrismaBillingStore(new PrismaClient({ adapter: new PrismaPg({ connectionString: url }) })) : new MemoryBillingStore();
+        const svc = new BillingService({ store, provider, snapshot: (o) => s.getSnapshot(o), accounts: (o) => p.list(o) });
+        if (provider instanceof SimulatedBillingProvider) provider.deliver = (e, sig) => svc.webhook(e, sig);
+        return svc;
+      },
+    },
+    BillingScheduler,
+    {
+      provide: Orchestrator,
+      inject: [AGENT_STORE, ActionGate, ANTHROPIC, BillingService],
+      useFactory: (s: AgentStore, g: ActionGate, a: Anthropic | null, b: BillingService) => {
+        const o = new Orchestrator(s, g, a);
+        o.allowed = (ownerId) => b.agentAllowed(ownerId);
+        o.onUsage = (ownerId, tier, res) => void b.recordUsage({ ownerId, kind: "autonomous", tier, model: res.model, ...costOf(tier, res.usage), expert: false, extraBilled: false }).catch(() => undefined);
+        return o;
+      },
+    },
     AutonomousScheduler,
     // Conversations du chat : Redis (persisté sur disque) si REDIS_URL, sinon mémoire.
     { provide: CONVERSATION_STORE, useFactory: () => (process.env.REDIS_URL ? new RedisConversationStore(new Redis(process.env.REDIS_URL)) : new MemoryConversationStore()) },

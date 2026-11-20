@@ -187,7 +187,8 @@ Owner (propriétaire)
 - [ ] Échéancier des loyers généré à partir du bail
 - [x] Comptes de réception du propriétaire (Mobile Money, banque ; par bien), vérifiés par code SMS, chiffrés
 - [x] Moyen de paiement de l'abonnement Keyo : carte (Visa, Mastercard…) ou Mobile Money ; prestataire carte simulé, Stripe ou CinetPay à brancher
-- [ ] Tarif de l'abonnement (forfait mensuel fixe) et prélèvements
+- [x] Tarif de l'abonnement (forfait mensuel fixe), essai, prélèvements, relances, lecture seule, reçus (prestataire simulé)
+- [ ] Brancher le vrai prestataire pour l'abonnement (CinetPay/PayDunya, Stripe) et l'envoi des avis par SMS
 - [ ] Paiement Mobile Money (CinetPay ou PayDunya) + webhooks + lien SMS de secours
 - [ ] Statuts des loyers (à venir, payé, en retard, partiel) calculés par une tâche quotidienne
 - [ ] Relances automatiques (push puis SMS), rédigées avec un ton progressif
@@ -219,7 +220,7 @@ L'agent Keyo agit à la place du propriétaire, dans les limites qu'il fixe. Cod
 - [x] Journal « Ce que Keyo a fait », demandes d'accord, annulation, idempotence (pas de double relance)
 - [x] Déclencheurs : chaque jour, chaque semaine, chaque mois (BullMQ + Redis, ou minuterie sans Redis) et événements (paiement reçu, incident signalé, logement libéré)
 - [x] Connecteurs : interface commune, pilote WhatsApp Business (API Cloud de Meta), pilotes simulés pour les autres canaux
-- [ ] PostgreSQL + Prisma à la place du stockage en mémoire (même interface `AgentStore`)
+- [ ] PostgreSQL + Prisma à la place du stockage en mémoire (même interface `AgentStore`) ; fait pour l'abonnement
 - [ ] Connexion téléphone + code SMS (remplace l'en-tête provisoire `x-keyo-owner`)
 - [ ] App : envoi des données au serveur, application des modifications, écrans Autonomie, Connexions, Ce que Keyo a fait, Accords en attente
 - [ ] Connecteurs réels : SMS (fournisseur local), e-mail, agrégateur de paiement (liens et webhooks), agenda, sites d'annonces, signature électronique

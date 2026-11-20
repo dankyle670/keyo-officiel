@@ -47,6 +47,11 @@ const textOf = (content: Anthropic.Beta.BetaContentBlock[]) =>
  * passent par l'ActionGate. Sans clé Claude, des règles fixes (playbook) jouent le même rôle.
  */
 export class Orchestrator {
+  /** Abonnement : agents en pause en lecture seule (branché dans app.module). */
+  allowed?: (ownerId: string) => Promise<boolean>;
+  /** Coût de chaque appel à Claude, par propriétaire. */
+  onUsage?: (ownerId: string, tier: ModelTier, res: Anthropic.Beta.BetaMessage) => void;
+
   constructor(
     private readonly store: AgentStore,
     private readonly gate: ActionGate,
@@ -63,6 +68,7 @@ export class Orchestrator {
       return { ...run, status, summary };
     };
     if (!s) return finish("FAILED", "Données du propriétaire indisponibles : ouvrez l'application pour les synchroniser.");
+    if (this.allowed && !(await this.allowed(ownerId).catch(() => true))) return finish("SKIPPED", "Abonnement en lecture seule : agents en pause.");
 
     const deferred = await this.gate.flushDeferred(ownerId);
     const work = wake(trigger, s, today);
@@ -90,7 +96,7 @@ export class Orchestrator {
       },
     ];
     const system = `Vous êtes le Gérant de Keyo : vous coordonnez des agents spécialisés qui gèrent les biens d'un propriétaire à la place d'une agence. Priorisez (argent dû et urgences d'abord), déléguez chaque sujet une fois au bon agent avec une consigne précise, puis rédigez pour le propriétaire un compte rendu de trois à cinq phrases, en français et au vouvoiement : ce qui a été fait, ce qui attend son accord.`;
-    const final = await this.loop(client, ROUTES.manager, system, ctx, `À traiter :\n${work.map((w) => `- ${SPECIALIST_LABEL[w.specialist]} (${w.specialist}) : ${w.why}`).join("\n")}`, tools, async (name, input) => {
+    const final = await this.loop(client, ownerId, ROUTES.manager, system, ctx, `À traiter :\n${work.map((w) => `- ${SPECIALIST_LABEL[w.specialist]} (${w.specialist}) : ${w.why}`).join("\n")}`, tools, async (name, input) => {
       const { specialist, task } = (input ?? {}) as { specialist?: Specialist; task?: string };
       if (name !== "delegate" || !specialist || !allowed.includes(specialist) || !task) return { error: "Délégation invalide." };
       const report = await this.specialist(client, ownerId, runId, specialist, task, ctx);
@@ -102,7 +108,7 @@ export class Orchestrator {
 
   private specialist(client: Anthropic, ownerId: string, runId: string, sp: Specialist, task: string, ctx: string) {
     const today = this.clock().toISOString().slice(0, 10);
-    return this.loop(client, ROUTES.specialist, SPECIALIST_SYSTEM(sp), ctx, task, specialistTools(sp), async (name, input) => {
+    return this.loop(client, ownerId, ROUTES.specialist, SPECIALIST_SYSTEM(sp), ctx, task, specialistTools(sp), async (name, input) => {
       const s = this.store.getSnapshot(ownerId);
       if (!s) return { error: "Données indisponibles." };
       if (isRead(name) && specialistTools(sp).some((t) => t.name === name)) return runRead(name, s, today);
@@ -112,7 +118,7 @@ export class Orchestrator {
   }
 
   /** Boucle d'outils : appelle Claude, exécute les outils demandés, renvoie les résultats, jusqu'à la réponse finale. */
-  private async loop(client: Anthropic, route: ModelTier, system: string, ctx: string, prompt: string, tools: Tool[], exec: Exec): Promise<string> {
+  private async loop(client: Anthropic, ownerId: string, route: ModelTier, system: string, ctx: string, prompt: string, tools: Tool[], exec: Exec): Promise<string> {
     const messages: Msg[] = [{ role: "user", content: prompt }];
     const cached = [...tools.map((t, i) => (i === tools.length - 1 ? { ...t, cache_control: { type: "ephemeral" as const } } : t))];
     for (let step = 0; step < MAX_STEPS; step++) {
@@ -126,6 +132,7 @@ export class Orchestrator {
         tools: cached as Anthropic.Beta.BetaToolUnion[],
         messages,
       });
+      this.onUsage?.(ownerId, route, res);
       messages.push({ role: "assistant", content: res.content as Anthropic.Beta.BetaContentBlockParam[] });
       if (res.stop_reason !== "tool_use") return textOf(res.content);
       const results: Anthropic.Beta.BetaToolResultBlockParam[] = [];

@@ -1,0 +1,145 @@
+// Base de données Keyo. Commence par l'abonnement ; les biens, contrats et échéances suivront.
+// Montants en entiers (unité mineure) + code devise, jamais de float pour l'argent.
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "ts"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  READ_ONLY
+  CANCELED
+}
+
+enum BillingPeriod {
+  MONTHLY
+  YEARLY
+}
+
+enum PlanId {
+  ESSENTIEL
+  CONFORT
+  PATRIMOINE
+}
+
+enum InvoiceStatus {
+  OPEN
+  PAID
+  FAILED
+  VOID
+}
+
+enum AttemptStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  EXPIRED
+}
+
+enum PaymentMethodKind {
+  CARD
+  MOBILE_MONEY
+}
+
+/// Un abonnement par propriétaire.
+model Subscription {
+  ownerId           String             @id
+  status            SubscriptionStatus @default(TRIALING)
+  /// Null : sur devis (plus de 15 logements).
+  planId            PlanId?
+  /// Formule appliquée à la prochaine échéance (nombre de logements changé).
+  nextPlanId        PlanId?
+  units             Int                @default(0)
+  period            BillingPeriod      @default(MONTHLY)
+  currency          String             @default("XOF")
+  trialEndsAt       DateTime?          @db.Date
+  /// Prochaine échéance : fin de l'essai ou de la période payée.
+  periodEnd         DateTime           @db.Date
+  cancelAtPeriodEnd Boolean            @default(false)
+  /// Rappels déjà envoyés (« trial-7 », « trial-1 »…).
+  reminded          String[]           @default([])
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  invoices          Invoice[]
+  usage             UsageRecord[]
+}
+
+/// Une échéance de l'abonnement. Payée uniquement sur confirmation du prestataire (webhook).
+model Invoice {
+  id             String          @id
+  /// Numéro de reçu lisible, unique (KEYO-2026-000123).
+  number         String          @unique
+  ownerId        String
+  subscription   Subscription    @relation(fields: [ownerId], references: [ownerId], onDelete: Cascade)
+  periodStart    DateTime        @db.Date
+  periodEnd      DateTime        @db.Date
+  /// Lignes : formule, analyses d'expert supplémentaires (libellé et montant TTC).
+  lines          Json
+  total          Int
+  vat            Int
+  currency       String
+  status         InvoiceStatus   @default(OPEN)
+  failedAttempts Int             @default(0)
+  issuedAt       DateTime        @default(now())
+  paidAt         DateTime?
+  attempts       PaymentAttempt[]
+
+  @@index([ownerId, issuedAt])
+}
+
+/// Chaque tentative de paiement chez le prestataire.
+model PaymentAttempt {
+  id               String            @id
+  invoiceId        String
+  invoice          Invoice           @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  ownerId          String
+  method           PaymentMethodKind
+  /// Compte de paiement utilisé (payment-accounts), jamais le numéro.
+  accountId        String
+  amount           Int
+  currency         String
+  status           AttemptStatus     @default(PENDING)
+  providerRef      String?           @unique
+  failureReason    String?
+  createdAt        DateTime          @default(now())
+  /// Mobile Money : la demande expire si le propriétaire ne la valide pas.
+  expiresAt        DateTime?
+  settledAt        DateTime?
+
+  @@index([ownerId, createdAt])
+}
+
+/// Coût de chaque appel à Claude, par propriétaire : quota d'analyses d'expert et back-office.
+model UsageRecord {
+  id            String       @id @default(cuid())
+  ownerId       String
+  subscription  Subscription @relation(fields: [ownerId], references: [ownerId], onDelete: Cascade)
+  at            DateTime     @default(now())
+  kind          String
+  tier          String
+  model         String
+  inputTokens   Int
+  cacheWrite    Int
+  cacheRead     Int
+  outputTokens  Int
+  webSearches   Int          @default(0)
+  /// Coût en millionièmes de dollar (entier).
+  costMicroUsd  Int
+  /// Analyse d'expert décomptée du quota (une par demande montée au palier Opus).
+  expert        Boolean      @default(false)
+  /// Analyse d'expert au-delà du quota, acceptée par le propriétaire et facturée.
+  extraBilled   Boolean      @default(false)
+  /// Facture sur laquelle cette analyse supplémentaire a été ajoutée.
+  billedInvoiceId String?
+
+  @@index([ownerId, at])
+}

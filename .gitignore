@@ -10,3 +10,4 @@ android/
 !.env.example
 .DS_Store
 expo-env.d.ts
+apps/api/src/generated/

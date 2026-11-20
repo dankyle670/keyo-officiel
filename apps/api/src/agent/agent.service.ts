@@ -1,10 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import { z } from "zod";
 import { agentToolSchemas, type AuditFinding } from "@keyo/shared";
 import { AGENT_SYSTEM, OPS_SYSTEM } from "./prompts.ts";
-import { callParams, MODELS, requiredTier, ROUTES, startTier, SWITCH_MODEL_TOOL } from "./router.ts";
+import { BillingService } from "../billing/service.ts";
+import { callParams, costOf, MODELS, requiredTier, ROUTES, startTier, SWITCH_MODEL_TOOL } from "./router.ts";
 import { MODEL_TIERS, tierAtLeast, type ModelTier } from "@keyo/shared";
 
 export const ANTHROPIC = Symbol("ANTHROPIC");
@@ -24,6 +25,8 @@ export const TurnBody = z.object({
   context: TurnContext,
   /** Palier atteint à l'étape précédente de la même demande (renvoyé par l'app). */
   tier: z.enum(MODEL_TIERS).optional(),
+  /** Le propriétaire a accepté une analyse d'expert au-delà du quota de sa formule. */
+  expertConsent: z.boolean().optional(),
 });
 
 export const OpsBody = z.object({
@@ -49,7 +52,10 @@ const contextBlock = (c: TurnContext) =>
 export class AgentService {
   private readonly tools = agentToolSchemas();
 
-  constructor(@Inject(ANTHROPIC) private readonly client: Anthropic | null) {}
+  constructor(
+    @Inject(ANTHROPIC) private readonly client: Anthropic | null,
+    @Optional() @Inject(BillingService) private readonly billing?: BillingService,
+  ) {}
 
   /** « claude » si une clé est configurée ; sinon l'app bascule sur son mode démo local. */
   status() {
@@ -60,15 +66,37 @@ export class AgentService {
    * Un tour de l'agent. La boucle est tenue par l'app : quand Claude demande un outil
    * (stop_reason « tool_use »), l'app l'exécute sur ses données et renvoie le résultat.
    */
-  async turn(body: z.infer<typeof TurnBody>) {
+  async turn(body: z.infer<typeof TurnBody>, ownerId?: string) {
     if (!this.client) return null;
+    const billing = ownerId ? this.billing : undefined;
+    // Abonnement en lecture seule : l'agent n'agit plus (les loyers, eux, continuent d'arriver).
+    if (billing && !(await billing.agentAllowed(ownerId!))) {
+      return {
+        content: [{ type: "text" as const, text: "Votre abonnement Keyo est en lecture seule : je ne peux plus agir pour vous. Vos données restent consultables dans l'app et vos loyers continuent d'arriver sur votre compte. Réglez l'échéance dans Mon abonnement pour me réactiver." }],
+        stop_reason: "end_turn",
+        locked: true,
+      };
+    }
     const messages = body.messages as Anthropic.Beta.BetaMessageParam[];
-    let tier = startTier(body.messages as Parameters<typeof startTier>[0], body.tier);
+    const first = startTier(body.messages as Parameters<typeof startTier>[0], body.tier);
+    let tier = first;
     let reason: string | undefined;
     // L'agent commence léger ; s'il choisit une action d'un palier supérieur (ou le demande avec
     // switch_model), l'étape est reprise par le modèle de ce palier. Au plus deux reprises.
     for (let attempt = 0; ; attempt++) {
+      // Analyse d'expert : décomptée une fois par demande, quand elle monte au palier Opus.
+      let expert = false;
+      let extra = false;
+      if (billing && tier === "EXPERT" && first !== "EXPERT") {
+        const q = await billing.expertAllowance(ownerId!);
+        if (q.remaining <= 0 && !body.expertConsent) {
+          return { content: [], stop_reason: "expert_quota", tier: first, quota: q };
+        }
+        expert = true;
+        extra = q.remaining <= 0;
+      }
       const res = await this.call(tier, body.context, messages);
+      if (billing) await billing.recordUsage({ ownerId: ownerId!, kind: "chat", tier, model: res.model, ...costOf(tier, res.usage), expert, extraBilled: extra }).catch(() => undefined);
       const need = requiredTier(res.content as Parameters<typeof requiredTier>[0]);
       if (attempt < 2 && !tierAtLeast(tier, need.tier) && res.stop_reason !== "refusal") {
         [tier, reason] = [need.tier, need.reason];
@@ -76,6 +104,21 @@ export class AgentService {
       }
       return { content: res.content, stop_reason: res.stop_reason, model: res.model, tier, reason };
     }
+  }
+
+  /**
+   * Point de cache sur le dernier message : l'historique déjà envoyé est relu depuis le cache
+   * (10 à 20 fois moins cher) au lieu d'être refacturé à chaque étape.
+   */
+  private withHistoryCache(messages: Anthropic.Beta.BetaMessageParam[]): Anthropic.Beta.BetaMessageParam[] {
+    const last = messages[messages.length - 1];
+    if (!last || !last.content) return messages;
+    const blocks: Anthropic.Beta.BetaContentBlockParam[] = typeof last.content === "string" ? [{ type: "text", text: last.content }] : [...(last.content as Anthropic.Beta.BetaContentBlockParam[])];
+    const i = blocks.length - 1;
+    const b = blocks[i];
+    if (!b || b.type === "thinking" || b.type === "redacted_thinking") return messages;
+    blocks[i] = { ...b, cache_control: { type: "ephemeral" } } as Anthropic.Beta.BetaContentBlockParam;
+    return [...messages.slice(0, -1), { ...last, content: blocks } as Anthropic.Beta.BetaMessageParam];
   }
 
   private call(tier: ModelTier, context: TurnContext, messages: Anthropic.Beta.BetaMessageParam[]) {
@@ -90,7 +133,7 @@ export class AgentService {
         { type: "text", text: contextBlock(context) },
       ],
       tools: tools as Anthropic.Beta.BetaToolUnion[],
-      messages,
+      messages: this.withHistoryCache(messages),
     });
   }
 

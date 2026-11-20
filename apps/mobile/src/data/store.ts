@@ -10,6 +10,7 @@ import {
   type AssetShare,
   type AppraisalAnswers,
   type PaymentAccountView,
+  type SubscriptionView,
   type AppraisalResult,
   type Holding,
   type AssetEvent,
@@ -92,6 +93,8 @@ export type OwnerState = {
   agentNotices: AgentNotice[];
   /** Comptes de paiement (masqués), copie du serveur ; absent tant qu'ils n'ont pas été chargés. */
   paymentAccounts?: PaymentAccountView[];
+  /** Abonnement Keyo (reçu du serveur). */
+  subscription?: SubscriptionView;
 };
 
 export type AgentNotice = { id: string; at: string; title: string; body: string; href?: string };
@@ -503,6 +506,10 @@ export const actions = {
   },
 
   /** Copie locale des comptes de paiement, rafraîchie depuis le serveur. */
+  setSubscription(subscription: SubscriptionView) {
+    setState((s) => ({ ...s, subscription }));
+  },
+
   setPaymentAccounts(paymentAccounts: PaymentAccountView[]) {
     setState((s) => ({ ...s, paymentAccounts }));
   },

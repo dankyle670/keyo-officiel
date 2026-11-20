@@ -19,6 +19,29 @@ export const MODELS: Record<ModelTier, { model: string; effort: Effort }> = {
   EXPERT: { model: env("KEYO_MODEL_EXPERT", "claude-opus-5-5"), effort: "medium" },
 };
 
+/**
+ * Tarifs Claude par palier, en dollars par million de jetons (entrée, sortie, lecture et écriture
+ * du cache 5 minutes), et recherche web (par recherche). Sert au coût par propriétaire.
+ */
+export const PRICES: Record<ModelTier, { input: number; output: number; cacheRead: number; cacheWrite: number }> = {
+  FAST: { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
+  STANDARD: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
+  EXPERT: { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
+};
+export const WEB_SEARCH_USD = 0.01;
+
+export type Usage = { input_tokens: number; output_tokens: number; cache_creation_input_tokens?: number | null; cache_read_input_tokens?: number | null; server_tool_use?: { web_search_requests?: number | null } | null };
+
+/** Coût d'un appel, en millionièmes de dollar (entier). */
+export function costOf(tier: ModelTier, u: Usage) {
+  const p = PRICES[tier];
+  const cacheWrite = u.cache_creation_input_tokens ?? 0;
+  const cacheRead = u.cache_read_input_tokens ?? 0;
+  const webSearches = u.server_tool_use?.web_search_requests ?? 0;
+  const micro = u.input_tokens * p.input + u.output_tokens * p.output + cacheRead * p.cacheRead + cacheWrite * p.cacheWrite + webSearches * WEB_SEARCH_USD * 1e6;
+  return { inputTokens: u.input_tokens, outputTokens: u.output_tokens, cacheWrite, cacheRead, webSearches, costMicroUsd: Math.round(micro) };
+}
+
 export const SWITCH_MODEL = "switch_model";
 
 /**

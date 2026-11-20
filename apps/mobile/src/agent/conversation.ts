@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import * as Speech from "expo-speech";
-import { AGENT_TOOLS, isAgentTool, needsConfirmation } from "@keyo/shared";
+import { AGENT_TOOLS, formatMoney, isAgentTool, needsConfirmation, type Money } from "@keyo/shared";
 import { KEYS, load, remove, save } from "@/data/persist";
 import { getSession, getSettings } from "@/data/session";
 import { agentMode, AgentUnavailable, apiBase, postTurn, type ApiMessage } from "./api";
@@ -22,6 +22,7 @@ export type FeedItem =
   | { id: string; kind: "agent"; text: string; link?: { label: string; href: string }; model?: string; feedback?: "up" | "down" }
   | { id: string; kind: "activity"; label: string; ok: boolean }
   | { id: string; kind: "proposal"; toolUseId: string; name: string; input: Record<string, unknown>; description: string; status: "pending" | "done" | "declined" | "failed"; result?: string }
+  | { id: string; kind: "quota"; text: string; status: "pending" | "accepted" | "declined" }
   | { id: string; kind: "error"; text: string };
 
 /** Pièce jointe gardée sur le téléphone (sans son contenu encodé). */
@@ -160,6 +161,9 @@ const checkStopped = () => {
 
 /** Palier de modèle atteint dans la demande en cours (choisi par l'agent selon ses actions). */
 let turnTier: "FAST" | "STANDARD" | "EXPERT" | undefined;
+/** Accord du propriétaire pour une analyse d'expert au-delà du quota : vaut pour la demande relancée. */
+let consentNext = false;
+let turnConsent = false;
 
 /** Un ou plusieurs tours avec Claude, jusqu'à une réponse finale ou une confirmation attendue. */
 async function runClaude(steps = 0): Promise<void> {
@@ -167,9 +171,19 @@ async function runClaude(steps = 0): Promise<void> {
     push({ id: id(), kind: "error", text: "L'agent a enchaîné trop d'étapes. Reformulez votre demande." });
     return;
   }
-  if (steps === 0) turnTier = undefined;
-  const res = await postTurn(state.history, turnContext(), current?.signal, turnTier);
+  if (steps === 0) {
+    turnTier = undefined;
+    turnConsent = consentNext;
+    consentNext = false;
+  }
+  const res = await postTurn(state.history, turnContext(), current?.signal, turnTier, turnConsent || undefined);
   checkStopped();
+  // Analyses d'expert de la formule épuisées : on demande l'accord avant de lancer l'analyse.
+  if (res.stop_reason === "expert_quota" && res.quota) {
+    const price = formatMoney(res.quota.extraPrice as Money);
+    push({ id: id(), kind: "quota", status: "pending", text: `Cette demande demande une analyse d'expert. Les ${res.quota.included} analyses comprises dans votre formule ce mois-ci sont utilisées : celle-ci coûtera ${price}, ajoutés à votre prochaine échéance.` });
+    return;
+  }
   turnTier = res.tier ?? turnTier;
   set({ history: [...state.history, { role: "assistant", content: res.content as Record<string, unknown>[] }] });
 
@@ -178,7 +192,7 @@ async function runClaude(steps = 0): Promise<void> {
     return;
   }
   const text = res.content.filter((b): b is { type: "text"; text: string } => b.type === "text").map((b) => b.text).join("\n");
-  sayAgent(text, undefined, res.model);
+  sayAgent(text, res.locked ? { label: "Mon abonnement", href: "/abonnement" } : undefined, res.model);
   if (res.stop_reason === "max_tokens") push({ id: id(), kind: "error", text: "Réponse interrompue : elle était trop longue." });
   // Recherches sur le web (outil serveur de Claude) : affichées comme les autres activités.
   for (const b of res.content) {
@@ -344,6 +358,21 @@ export const conversation = {
     Speech.stop();
     set({ feed: state.feed.slice(0, i), history: state.history.slice(0, u.hist ?? state.history.length), pending: null });
     return u.text;
+  },
+
+  /** Accord (ou non) pour une analyse d'expert au-delà du quota de la formule. */
+  async decideQuota(itemId: string, approve: boolean) {
+    const item = state.feed.find((f) => f.id === itemId && f.kind === "quota");
+    if (!item || item.kind !== "quota" || item.status !== "pending" || state.busy) return;
+    set({ feed: state.feed.map((f) => (f.id === itemId ? ({ ...f, status: approve ? "accepted" : "declined" } as FeedItem) : f)) });
+    if (!approve) {
+      const text = "Entendu, je ne lance pas l'analyse d'expert. Vous en aurez de nouveau à disposition le mois prochain.";
+      set({ history: [...state.history, { role: "assistant", content: text }] });
+      sayAgent(text);
+      return;
+    }
+    consentNext = true;
+    await guard(() => runClaude(0));
   },
 
   /** Réponse du propriétaire à une carte de confirmation. */

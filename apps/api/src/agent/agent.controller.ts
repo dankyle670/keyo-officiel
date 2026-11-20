@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { Body, Logger, Controller, Get, HttpException, HttpStatus, Inject, Post } from "@nestjs/common";
+import { Body, Logger, Controller, Get, Headers, HttpException, HttpStatus, Inject, Post } from "@nestjs/common";
+import { owner } from "../owner.ts";
 import { AgentService, OpsBody, TurnBody } from "./agent.service.ts";
 
 const parse = <T>(schema: { safeParse: (v: unknown) => { success: true; data: T } | { success: false } }, body: unknown): T => {
@@ -31,8 +32,10 @@ export class AgentController {
   }
 
   @Post("turn")
-  async turn(@Body() body: unknown) {
-    const res = await this.agent.turn(parse(TurnBody, body)).catch(rethrow);
+  async turn(@Body() body: unknown, @Headers("x-keyo-owner") id?: string, @Headers("authorization") auth?: string) {
+    // Propriétaire facultatif (anciennes versions de l'app) : sans lui, ni quota ni coût enregistré.
+    const ownerId = id ? owner(id, auth) : undefined;
+    const res = await this.agent.turn(parse(TurnBody, body), ownerId).catch(rethrow);
     if (!res) throw new HttpException({ mode: "demo" }, HttpStatus.SERVICE_UNAVAILABLE);
     return res;
   }
