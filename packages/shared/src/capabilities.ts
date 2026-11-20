@@ -73,7 +73,7 @@ export const CAPABILITY_GROUPS: { domain: string; entries: Entry[] }[] = [
       { what: "Calculer revenus, dépenses et rentabilité", tool: "get_finances" },
       { what: "Préparer le rapport du mois", tool: "get_monthly_report" },
       { what: "Vous envoyer le rapport du mois", auto: "send_monthly_report" },
-      { what: "Estimer la valeur d'un bien (maisons, appartements, plantations)", tool: "get_appraisal_questions" },
+      { what: "Estimer la valeur d'un bien (maisons, appartements, immeubles, plantations)", tool: "get_appraisal_questions" },
       { what: "Mener l'expertise et enregistrer la valeur", tool: "submit_appraisal" },
       { what: "Fixer la valeur d'un bien", tool: "set_asset_value" },
       { what: "Vous proposer une nouvelle expertise", auto: "suggest_reappraisal" },

@@ -62,7 +62,7 @@ export default function Valuation() {
   const last = latestAppraisal(state, asset.id);
   const r = last?.result;
   const holders = asset.holding === "FAMILY" ? assetHolders(state, asset.id, { id: user.id, name: "Vous" }) : [];
-  const count = appraisalQuestions(asset, state.units).length;
+  const count = appraisalQuestions(asset, state.units, state.agreements, today()).length;
 
   return (
     <SubScreen

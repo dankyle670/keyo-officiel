@@ -6,14 +6,16 @@ import { roundValue, valueAsset } from "./valuation.ts";
  * Expertise Keyo : l'entretien qu'un expert immobilier ou agricole mènerait, puis une estimation
  * par comparaison (prix au m² ou à l'hectare, ajustés par l'état, la situation juridique, l'accès…).
  * Déterministe et testé : l'agent pose les questions et s'appuie sur ce calcul, sans inventer de prix.
- * Ouvert pour l'instant aux maisons, appartements et plantations.
+ * Ouvert aux maisons, appartements, immeubles de rapport et plantations. Un immeuble croise deux
+ * méthodes d'expert : capitalisation du revenu net (méthode principale quand il est loué) et
+ * comparaison (surface bâtie et terrain).
  * Les barèmes sont des repères de marché indicatifs, à remplacer par des prix réels par quartier.
  */
-export type AppraisalKind = "HOUSE" | "APARTMENT" | "PLANTATION";
+export type AppraisalKind = "HOUSE" | "APARTMENT" | "BUILDING" | "PLANTATION";
 
 export function appraisalKind(a: Asset): AppraisalKind | null {
   if (a.type === "PLANTATION") return "PLANTATION";
-  if (a.type === "REAL_ESTATE" && (a.details.kind === "HOUSE" || a.details.kind === "APARTMENT")) return a.details.kind;
+  if (a.type === "REAL_ESTATE" && (a.details.kind === "HOUSE" || a.details.kind === "APARTMENT" || a.details.kind === "BUILDING")) return a.details.kind;
   return null;
 }
 
@@ -47,7 +49,101 @@ const TIERS_FR = [
   opt("OUTSKIRTS", "Rural"),
 ];
 
-export function appraisalQuestions(a: Asset, units: AssetUnit[]): AppraisalQuestion[] {
+/** Contrats en cours du bien à une date. */
+const activeLeases = (a: Asset, agreements: Agreement[], today: string) => agreements.filter((g) => g.assetId === a.id && g.startDate <= today && (!g.endDate || g.endDate >= today));
+
+/** Loyers mensuels de l'immeuble s'il était entièrement loué : contrats en cours, sinon loyer demandé. Unité principale (FCFA, euros). */
+function potentialRent(a: Asset, own: AssetUnit[], leases: Agreement[]) {
+  const minor = own.reduce((n, u) => {
+    const g = leases.find((x) => x.unitId === u.id);
+    return n + (g ? g.periodicAmount.amount : typeof u.details.askingRent === "number" ? u.details.askingRent : 0);
+  }, 0);
+  return a.currency === "XOF" ? minor : Math.round(minor / 100);
+}
+
+function buildingQuestions(a: Asset, own: AssetUnit[], leases: Agreement[]): AppraisalQuestion[] {
+  const ci = a.location.country === "CI";
+  const surface = own.reduce((n, u) => n + (typeof u.details.surfaceM2 === "number" ? u.details.surfaceM2 : 0), 0);
+  const rent = potentialRent(a, own, leases);
+  const occupied = own.length ? own.filter((u) => leases.some((g) => g.unitId === u.id)).length / own.length : 0;
+  const cur = a.currency === "XOF" ? "FCFA" : a.currency;
+  return [
+    { id: "tier", ask: "Dans quel type de quartier se trouve l'immeuble ?", type: "choice", options: ci ? TIERS_CI : TIERS_FR },
+    {
+      id: "use",
+      ask: "À quoi sert l'immeuble ?",
+      type: "choice",
+      options: [opt("RESIDENTIAL", "Logements uniquement"), opt("MIXED", "Commerces au rez-de-chaussée, logements au-dessus"), opt("OFFICE", "Bureaux ou commerces")],
+    },
+    { id: "floors", ask: "Combien de niveaux, rez-de-chaussée compris ?", hint: "Un R+3 compte 4 niveaux.", type: "number" },
+    { id: "unitsCount", ask: "Combien de logements ou de locaux compte-t-il ?", type: "number", prefill: own.length || undefined },
+    { id: "surface", ask: "Quelle est la surface bâtie totale, tous niveaux ?", hint: "La somme des surfaces de tous les logements et locaux.", type: "number", unit: "m²", prefill: surface || undefined },
+    { id: "land", ask: "Et la surface du terrain ?", hint: "Passez si vous ne la connaissez pas.", type: "number", unit: "m²", optional: true },
+    {
+      id: "monthlyRent",
+      ask: "Combien rapporteraient les loyers chaque mois si tout était loué ?",
+      hint: "Total de tous les logements et locaux, charges non comprises.",
+      type: "number",
+      unit: cur,
+      prefill: rent || undefined,
+    },
+    {
+      id: "occupancy",
+      ask: "En général, quelle part est louée sur l'année ?",
+      type: "choice",
+      options: [opt("FULL", "Presque toujours tout loué (plus de 90 %)"), opt("MOST", "La plupart du temps (70 à 90 %)"), opt("HALF", "Souvent des logements vides (moins de 70 %)")],
+      prefill: own.length ? (occupied >= 0.9 ? "FULL" : occupied >= 0.7 ? "MOST" : "HALF") : undefined,
+    },
+    {
+      id: "charges",
+      ask: "Combien coûtent l'entretien, le gardiennage et les taxes chaque année ?",
+      hint: "Facultatif. Sans réponse, l'expert retient 20 % des loyers.",
+      type: "number",
+      unit: cur,
+      optional: true,
+    },
+    {
+      id: "age",
+      ask: "Quand a-t-il été construit ?",
+      type: "choice",
+      options: [opt("LT5", "Il y a moins de 5 ans"), opt("5_15", "Entre 5 et 15 ans"), opt("15_30", "Entre 15 et 30 ans"), opt("GT30", "Il y a plus de 30 ans")],
+    },
+    { id: "condition", ask: "Dans quel état sont la structure et les parties communes ?", type: "choice", options: [opt("NEW", "Neuf ou rénové"), opt("GOOD", "Bon état"), opt("WORKS", "Travaux à prévoir"), opt("HEAVY", "Gros travaux (fissures, étanchéité)")] },
+    { id: "finish", ask: "Et les finitions des logements ?", type: "choice", options: [opt("HIGH", "Haut de gamme"), opt("STANDARD", "Standard"), opt("BASIC", "Basiques")] },
+    {
+      id: "equipment",
+      ask: "Quels équipements l'immeuble possède-t-il ?",
+      hint: "Plusieurs réponses possibles.",
+      type: "multi",
+      optional: true,
+      options: [opt("LIFT", "Ascenseur"), opt("GENERATOR", "Groupe électrogène"), opt("WATER", "Forage ou bâche à eau"), opt("PARKING", "Parking ou sous-sol"), opt("GUARD", "Gardiennage"), opt("METERS", "Compteurs d'eau et d'électricité individuels")],
+    },
+    ...(ci
+      ? [
+          {
+            id: "legal",
+            ask: "Quel document prouve la propriété du terrain ?",
+            type: "choice" as const,
+            options: [opt("TF", "Titre foncier"), opt("ACD", "ACD (arrêté de concession définitive)"), opt("CUSTOM", "Lettre d'attribution ou attestation villageoise"), opt("NONE", "Aucun document")],
+          },
+        ]
+      : []),
+    { id: "permit", ask: "L'immeuble a-t-il un permis de construire ?", type: "choice", options: [opt("YES", "Oui, conforme à la construction"), opt("PARTIAL", "Oui, mais des niveaux ont été ajoutés"), opt("NO", "Non ou je ne sais pas")] },
+    { id: "access", ask: "Comment est la voie d'accès ?", type: "choice", options: [opt("PAVED", "Route bitumée"), opt("DIRT", "Voie en terre praticable"), opt("HARD", "Accès difficile")] },
+    {
+      id: "surroundings",
+      ask: "Quelque chose de particulier dans l'environnement ?",
+      hint: "Plusieurs réponses possibles.",
+      type: "multi",
+      optional: true,
+      options: [opt("MAINROAD", "Sur un axe passant (bon pour les commerces)"), opt("SERVICES", "Proche écoles et commerces"), opt("FLOOD", "Zone inondable"), opt("NOISE", "Bruit ou nuisances")],
+    },
+    { id: "ownerGuess", ask: "Selon vous, combien vaut-il ?", hint: "Facultatif. Cela permet de comparer avec l'estimation.", type: "number", unit: cur, optional: true },
+  ];
+}
+
+/** `agreements` et `today` servent à préremplir les loyers d'un immeuble. */
+export function appraisalQuestions(a: Asset, units: AssetUnit[], agreements: Agreement[] = [], today = new Date().toISOString().slice(0, 10)): AppraisalQuestion[] {
   const kind = appraisalKind(a);
   if (!kind) return [];
   const own = units.filter((u) => u.assetId === a.id);
@@ -100,6 +196,7 @@ export function appraisalQuestions(a: Asset, units: AssetUnit[]): AppraisalQuest
       { id: "ownerGuess", ask: "Selon vous, combien vaut-elle ?", hint: "Facultatif. Cela permet de comparer avec l'estimation.", type: "number", unit: a.currency === "XOF" ? "FCFA" : a.currency, optional: true },
     ];
   }
+  if (kind === "BUILDING") return buildingQuestions(a, own, activeLeases(a, agreements, today));
   const house = kind === "HOUSE";
   const rooms = own.reduce((n, u) => n + (typeof u.details.rooms === "number" ? u.details.rooms : 0), 0);
   return [
@@ -182,6 +279,14 @@ const PLANT_HA: Record<string, Record<string, number>> = {
   PALM: { YOUNG: 800_000, STARTING: 1_500_000, FULL: 2_000_000, OLD: 900_000 },
   OTHER: { YOUNG: 500_000, STARTING: 900_000, FULL: 1_200_000, OLD: 600_000 },
 };
+/**
+ * Taux de rendement brut retenus par les experts pour un immeuble de rapport, selon le quartier :
+ * plus le quartier est sûr et recherché, plus le taux est bas (et la valeur haute). Repères indicatifs.
+ */
+const CAP_RATE: Record<"CI" | "EU", Record<string, number>> = {
+  CI: { PRIME: 0.08, RESIDENTIAL: 0.09, POPULAR: 0.105, OUTSKIRTS: 0.12 },
+  EU: { PRIME: 0.04, RESIDENTIAL: 0.05, POPULAR: 0.06, OUTSKIRTS: 0.07 },
+};
 const REF_YIELD: Record<string, number> = { COCOA: 500, RUBBER: 1500, CASHEW: 500, PALM: 10_000 };
 const BARE_LAND_HA = 500_000;
 const XOF_PER_EUR = 655.957;
@@ -217,7 +322,7 @@ export function appraise(input: AppraisalInput): AppraisalResult | null {
   const kind = appraisalKind(a);
   if (!kind) return null;
   const c = a.currency;
-  const questions = appraisalQuestions(a, input.units);
+  const questions = appraisalQuestions(a, input.units, input.agreements, input.today);
   const get = (id: string) => ans[id] ?? questions.find((q) => q.id === id)?.prefill;
   const missing = questions.filter((q) => !q.optional && (get(q.id) === undefined || get(q.id) === null || get(q.id) === "")).map((q) => q.id);
   const label = (id: string) => {
@@ -257,6 +362,57 @@ export function appraise(input: AppraisalInput): AppraisalResult | null {
     value = plantation + land + fromXof(fixed, c);
     if (eq.includes("FENCE")) value *= apply("Clôture ou bornage", 1.02);
     method = "Valeur à l'hectare planté selon la culture et le stade, plus la valeur du terrain nu, ajustées par l'entretien, la situation juridique et l'accès.";
+  } else if (kind === "BUILDING") {
+    const zone = a.location.country === "CI" ? "CI" : "EU";
+    const conv = (x: number) => (zone === "CI" ? fromXof(x, c) : c === "XOF" ? Math.round((x / 100) * XOF_PER_EUR) : x);
+    const major = (n: number) => n * (c === "XOF" ? 1 : 100);
+    const tier = get("tier");
+    const use = String(get("use") ?? "RESIDENTIAL");
+    const surface = num(get("surface"));
+    factors.push({ label: `${label("tier")}, ${label("use").toLowerCase()}`, effect: `${surface.toLocaleString("fr-FR")} m² bâtis` });
+
+    // 1. Comparaison : surface bâtie au prix du quartier (un immeuble se négocie sous le prix d'un logement seul), plus le terrain.
+    let building = surface * conv(pick(HOME_M2[zone], tier, HOME_M2[zone].RESIDENTIAL!)) * 0.85;
+    building *= pick({ RESIDENTIAL: 1, MIXED: 1.05, OFFICE: 1.1 }, use);
+    building *= apply(`Construit ${label("age").toLowerCase()}`, pick({ LT5: 1, "5_15": 0.92, "15_30": 0.8, GT30: 0.68 }, get("age")));
+    building *= apply(`État : ${label("condition").toLowerCase()}`, pick({ NEW: 1.08, GOOD: 1, WORKS: 0.85, HEAVY: 0.65 }, get("condition")));
+    building *= apply(`Finitions : ${label("finish").toLowerCase()}`, pick({ HIGH: 1.15, STANDARD: 1, BASIC: 0.85 }, get("finish")));
+    const landM2 = num(get("land"));
+    const land = landM2 * conv(pick(LAND_M2[zone], tier, LAND_M2[zone].RESIDENTIAL!));
+    if (land) factors.push({ label: `Terrain de ${landM2.toLocaleString("fr-FR")} m²`, effect: "valeur du foncier ajoutée" });
+    let comparison = building + land;
+    const EQ: Record<string, number> = { LIFT: 0.03, GENERATOR: 0.02, WATER: 0.02, PARKING: 0.03, GUARD: 0.01, METERS: 0.02 };
+    const eqPct = list(get("equipment")).reduce((n, e) => n + (EQ[String(e)] ?? 0), 0);
+    if (eqPct) comparison *= 1 + eqPct;
+
+    // 2. Rendement : loyers annuels × occupation − charges, divisés par le taux du quartier.
+    const gross = major(num(get("monthlyRent"))) * 12;
+    const occ = pick({ FULL: 0.95, MOST: 0.82, HALF: 0.62 }, get("occupancy"), 0.85);
+    const charges = get("charges") !== undefined && get("charges") !== null && get("charges") !== "" ? major(num(get("charges"))) : gross * occ * 0.2;
+    const net = Math.max(0, gross * occ - charges);
+    let rate = pick(CAP_RATE[zone], tier, CAP_RATE[zone].RESIDENTIAL!);
+    if (use === "MIXED") rate -= 0.005;
+    if (get("condition") === "WORKS") rate += 0.005;
+    if (get("condition") === "HEAVY") rate += 0.015;
+    const income = rate > 0 ? net / rate : 0;
+    if (gross) factors.push({ label: `Loyers de ${(gross / (c === "XOF" ? 1 : 100)).toLocaleString("fr-FR")} ${c === "XOF" ? "FCFA" : c} par an`, effect: `occupation ${Math.round(occ * 100)} %, rendement retenu ${(rate * 100).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} %` });
+
+    // Pondération d'expert : le rendement prime pour un immeuble loué.
+    value = income ? income * 0.6 + comparison * 0.4 : comparison;
+    if (income) factors.push({ label: "Pondération", effect: "rendement 60 %, comparaison 40 %" });
+
+    if (eqPct) factors.push({ label: "Équipements", effect: pct(1 + eqPct) });
+    if (zone === "CI") value *= apply(`Propriété : ${label("legal")}`, pick({ TF: 1, ACD: 0.97, CUSTOM: 0.75, NONE: 0.6 }, get("legal")));
+    value *= apply(`Permis : ${label("permit").toLowerCase()}`, pick({ YES: 1, PARTIAL: 0.92, NO: 0.85 }, get("permit")));
+    value *= apply(`Accès : ${label("access").toLowerCase()}`, pick({ PAVED: 1, DIRT: 0.92, HARD: 0.8 }, get("access")));
+    const env = list(get("surroundings"));
+    if (env.includes("MAINROAD") && use !== "RESIDENTIAL") value *= apply("Axe passant", 1.05);
+    if (env.includes("SERVICES")) value *= apply("Proche des commodités", 1.03);
+    if (env.includes("FLOOD")) value *= apply("Zone inondable", 0.85);
+    if (env.includes("NOISE")) value *= apply("Nuisances", 0.95);
+    method = income
+      ? "Capitalisation du revenu net (loyers, occupation et charges, au taux de rendement du quartier), croisée avec la valeur par comparaison (surface bâtie et terrain), puis ajustée par la situation juridique, le permis et l'accès."
+      : "Comparaison : surface bâtie et terrain au prix du quartier, ajustés par l'âge, l'état, l'usage, les équipements, la situation juridique, le permis et l'accès. Sans loyers connus, la méthode par le rendement n'a pas pu être appliquée.";
   } else {
     const zone = a.location.country === "CI" ? "CI" : "EU";
     const conv = (x: number) => (zone === "CI" ? fromXof(x, c) : c === "XOF" ? Math.round((x / 100) * XOF_PER_EUR) : x);
@@ -287,7 +443,7 @@ export function appraise(input: AppraisalInput): AppraisalResult | null {
   }
 
   // Le revenu locatif, s'il existe, sert de contrôle (20 %).
-  const income = valueAsset(input).incomeValue;
+  const income = kind === "BUILDING" ? null : valueAsset(input).incomeValue;
   if (income && value > 0) {
     value = value * 0.8 + income.amount * 0.2;
     factors.push({ label: "Contrôle par le revenu locatif", effect: "pris en compte à 20 %" });
@@ -301,7 +457,10 @@ export function appraise(input: AppraisalInput): AppraisalResult | null {
   const spread = { LOW: 0.2, MEDIUM: 0.12, HIGH: 0.08 }[confidence];
 
   // Répartition par unité : à la surface (parcelles) ou à parts égales.
-  const weights = own.map((u) => num(kind === "PLANTATION" ? u.details.areaHa : 1) || 1);
+  // Immeuble : au loyer de chaque logement (contrat en cours, sinon loyer demandé).
+  const leases = activeLeases(a, input.agreements, input.today);
+  const rentOf = (u: AssetUnit) => leases.find((g) => g.unitId === u.id)?.periodicAmount.amount ?? (typeof u.details.askingRent === "number" ? u.details.askingRent : 0);
+  const weights = own.map((u) => num(kind === "PLANTATION" ? u.details.areaHa : kind === "BUILDING" ? rentOf(u) : 1) || 1);
   const wsum = weights.reduce((n, w) => n + w, 0) || 1;
   const perUnit = own.map((u, i) => ({ unitId: u.id, value: roundValue({ amount: Math.round((result.amount * weights[i]!) / wsum), currency: c }) }));
 

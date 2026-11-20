@@ -34,18 +34,18 @@ export function demoReply(question: string, currency: Currency): DemoReply {
   if (s.assets.length === 0) return { text: "Vous n'avez encore aucun bien. Ajoutez-en un depuis l'onglet Biens, ou chargez les données de démonstration dans le Profil." };
 
   // Évaluation : avant le contrôle, car « documents » apparaît souvent dans la demande.
-  // L'expertise (maisons, appartements, plantations) passe par l'entretien d'expert.
+  // L'expertise (maisons, appartements, immeubles, plantations) passe par l'entretien d'expert.
   if (/(evalu|estim|vaut|valeur|expertis)/.test(q)) {
     const one = findAsset(q);
     if (one) {
       if (!appraisalKind(one))
-        return { text: `L'expertise de ${one.name} n'est pas encore disponible : Keyo évalue pour l'instant les maisons, les appartements et les plantations. Vous pouvez saisir sa valeur vous-même dans « Modifier le bien ».` };
+        return { text: `L'expertise de ${one.name} n'est pas encore disponible : Keyo évalue les maisons, les appartements, les immeubles et les plantations. Vous pouvez saisir sa valeur vous-même dans « Modifier le bien ».` };
       const last = latestAppraisal(s, one.id);
-      const n = appraisalQuestions(one, s.units).length;
+      const n = appraisalQuestions(one, s.units, s.agreements, today()).length;
       return {
         text: last
           ? `Dernière expertise de ${one.name} : ${formatMoney(last.result.value)}, entre ${formatMoney(last.result.low)} et ${formatMoney(last.result.high)} (${CONFIDENCE_LABEL[last.result.confidence].toLowerCase()}). Si quelque chose a changé (travaux, titre obtenu), refaisons l'entretien.\nSources : expertise Keyo`
-          : `Pour estimer ${one.name} sérieusement, je vais vous poser ${n} questions, comme un expert venu sur place : ${appraisalKind(one) === "PLANTATION" ? "culture, surface, stade des plants, rendement, entretien, titre et accès" : "quartier, surface, âge, état, finitions, équipements, titre et accès"}. Comptez deux minutes.`,
+          : `Pour estimer ${one.name} sérieusement, je vais vous poser ${n} questions, comme un expert venu sur place : ${appraisalKind(one) === "PLANTATION" ? "culture, surface, stade des plants, rendement, entretien, titre et accès" : appraisalKind(one) === "BUILDING" ? "quartier, usage, niveaux, surface, loyers, occupation, charges, état, titre, permis et accès" : "quartier, surface, âge, état, finitions, équipements, titre et accès"}. Comptez deux minutes.`,
         link: { label: last ? "Refaire l'expertise" : "Commencer l'expertise", href: `/bien/${one.id}/expertise` },
       };
     }

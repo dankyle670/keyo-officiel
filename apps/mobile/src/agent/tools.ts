@@ -205,7 +205,7 @@ const EXECUTORS: { [N in AgentToolName]: Executor<N> } = {
     const a = s.assets.find((x) => x.id === assetId);
     if (!a) return fail(`Bien introuvable : ${assetId}`);
     if (!appraisalKind(a)) return fail("L'expertise n'est disponible que pour les maisons, les appartements et les plantations.");
-    const questions = appraisalQuestions(a, s.units);
+    const questions = appraisalQuestions(a, s.units, s.agreements, today());
     return ok({ bien: a.name, questions }, `${questions.length} questions`);
   },
 

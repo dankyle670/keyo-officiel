@@ -23,7 +23,7 @@ export default function Expertise() {
   const insets = useSafeAreaInsets();
   const state = useOwnerState((s) => s);
   const asset = state.assets.find((a) => a.id === id);
-  const questions = useMemo(() => (asset ? appraisalQuestions(asset, state.units) : []), [asset, state.units]);
+  const questions = useMemo(() => (asset ? appraisalQuestions(asset, state.units, state.agreements, today()) : []), [asset, state.units, state.agreements]);
   const { mode } = useConversation();
   const [answers, setAnswers] = useState<AppraisalAnswers>({});
   const [step, setStep] = useState(0);
@@ -59,7 +59,7 @@ export default function Expertise() {
         <RoundButton icon={ChevronLeft} label="Retour" onPress={() => router.back()} />
         <Text variant="screenTitle">Expertise bientôt disponible</Text>
         <Text variant="body" tone="inkMuted">
-          L'expertise Keyo couvre pour l'instant les maisons, les appartements et les plantations.
+          L'expertise Keyo couvre les maisons, les appartements, les immeubles et les plantations.
         </Text>
       </View>
     );

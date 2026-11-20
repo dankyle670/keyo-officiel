@@ -16,9 +16,10 @@ const asset = (extra: Partial<Asset>): Asset => ({
 });
 const ctx = { units: [] as AssetUnit[], agreements: [], documents: [], today: "2026-11-19" };
 
-test("types ouverts : maison, appartement, plantation", () => {
+test("types ouverts : maison, appartement, immeuble, plantation", () => {
   assert.equal(appraisalKind(asset({})), "HOUSE");
-  assert.equal(appraisalKind(asset({ details: { kind: "BUILDING" } })), null);
+  assert.equal(appraisalKind(asset({ details: { kind: "BUILDING" } })), "BUILDING");
+  assert.equal(appraisalKind(asset({ details: { kind: "COMMERCIAL" } })), null);
   assert.equal(appraisalKind(asset({ type: "VEHICLE", details: { kind: "TAXI" } })), null);
   assert.equal(appraise({ ...ctx, asset: asset({ type: "SHOP", details: { kind: "BOUTIQUE" } }), answers: {} }), null);
   assert.ok(appraisalQuestions(asset({ details: { kind: "APARTMENT" } }), []).some((q) => q.id === "floor"));
@@ -58,4 +59,44 @@ test("plantation de cacao en pleine production, répartie par parcelle", () => {
   // 4 ha (prérempli) × 2 500 000 + 4 ha × 500 000 = 12 000 000
   assert.equal(r.value.amount, 12_000_000);
   assert.deepEqual(r.perUnit.map((u) => u.value.amount), [9_000_000, 3_000_000]);
+});
+
+test("immeuble loué : rendement et comparaison croisés, loyers préremplis depuis les baux, réparti au loyer", () => {
+  const units: AssetUnit[] = [1, 2, 3, 4].map((i) => ({ id: `u${i}`, assetId: "a1", type: "REAL_ESTATE", label: `Appartement ${i}`, details: { rooms: 3, surfaceM2: 100, askingRent: i === 4 ? 300_000 : 0 } }));
+  const lease = (i: number, amount: number) => ({ id: `g${i}`, assetId: "a1", unitId: `u${i}`, kind: "LEASE" as const, partyId: `p${i}`, startDate: "2025-01-01", periodicAmount: { amount, currency: "XOF" as const }, dueDay: 5, period: "MONTHLY" as const });
+  const agreements = [lease(1, 300_000), lease(2, 300_000), lease(3, 600_000)];
+  const a = asset({ details: { kind: "BUILDING" } });
+  const qs = appraisalQuestions(a, units, agreements, ctx.today);
+  // 3 baux (1 200 000) + loyer demandé du logement vide (300 000)
+  assert.equal(qs.find((q) => q.id === "monthlyRent")!.prefill, 1_500_000);
+  assert.equal(qs.find((q) => q.id === "surface")!.prefill, 400);
+  assert.equal(qs.find((q) => q.id === "occupancy")!.prefill, "MOST");
+  const r = appraise({
+    ...ctx,
+    units,
+    agreements,
+    asset: a,
+    answers: { tier: "RESIDENTIAL", use: "RESIDENTIAL", floors: 3, occupancy: "FULL", age: "LT5", condition: "GOOD", finish: "STANDARD", legal: "TF", permit: "YES", access: "PAVED", equipment: [] },
+  })!;
+  // Rendement : 18 000 000 × 0,95 × 0,8 / 0,09 = 152 000 000 ; comparaison : 400 × 500 000 × 0,85 = 170 000 000
+  // 0,6 × 152 000 000 + 0,4 × 170 000 000 = 159 200 000
+  assert.equal(r.kind, "BUILDING");
+  assert.equal(r.value.amount, 159_000_000);
+  assert.deepEqual(r.missing, []);
+  assert.ok(r.method.startsWith("Capitalisation"));
+  // Répartition au loyer : 300 / 300 / 600 / 300
+  assert.deepEqual(r.perUnit.map((u) => u.value.amount), [31_800_000, 31_800_000, 63_600_000, 31_800_000]);
+});
+
+test("immeuble sans loyers connus : comparaison seule, permis et titre pris en compte", () => {
+  const r = appraise({
+    ...ctx,
+    asset: asset({ details: { kind: "BUILDING" } }),
+    answers: { tier: "POPULAR", use: "MIXED", floors: 4, unitsCount: 8, surface: 600, land: 300, age: "15_30", condition: "WORKS", finish: "BASIC", legal: "ACD", permit: "PARTIAL", access: "PAVED" },
+  })!;
+  assert.ok(r.method.startsWith("Comparaison"));
+  assert.ok(r.missing.includes("monthlyRent"));
+  assert.equal(r.confidence, "LOW");
+  assert.ok(r.factors.some((f) => f.label.startsWith("Permis")));
+  assert.ok(r.value.amount > 0);
 });

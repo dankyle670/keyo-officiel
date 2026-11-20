@@ -75,7 +75,7 @@ export const AGENT_TOOLS = {
     kind: "read",
     label: "Questions d'expertise",
     description:
-      "Questions qu'un expert pose pour évaluer un bien (maisons, appartements et plantations uniquement), avec les réponses déjà connues (prefill) et les choix possibles. Menez l'entretien dans le chat comme un expert : une ou deux questions à la fois, proposez de confirmer les réponses connues, puis appelez submit_appraisal avec les codes des réponses.",
+      "Questions qu'un expert pose pour évaluer un bien (maisons, appartements, immeubles et plantations), avec les réponses déjà connues (prefill) et les choix possibles. Menez l'entretien dans le chat comme un expert : une ou deux questions à la fois, proposez de confirmer les réponses connues, puis appelez submit_appraisal avec les codes des réponses.",
     input: z.object({ assetId: z.string() }),
   },
   get_owner_passport: {
