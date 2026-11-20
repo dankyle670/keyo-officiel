@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ComponentRef } from "react";
-import { Alert, Animated, Easing, Image, KeyboardAvoidingView, Pressable, ScrollView, Share, TextInput, View } from "react-native";
+import { Alert, Animated, Easing, Image, KeyboardAvoidingView, Linking, Pressable, ScrollView, Share, TextInput, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -28,6 +28,7 @@ import {
   Volume2,
   Wallet,
   Workflow,
+  Globe,
   X,
   type LucideIcon,
 } from "lucide-react-native";
@@ -49,6 +50,14 @@ const SUGGESTIONS: { icon: LucideIcon; title: string; prompt: string }[] = [
 
 /** Copier passe par la feuille de partage du système, qui propose « Copier ». */
 const share = (text: string) => void Share.share({ message: text }).catch(() => undefined);
+const domainOf = (url: string) => {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+};
+
 const clean = (t: string) =>
   t
     .split("\n")
@@ -657,7 +666,7 @@ function AgentMessage({ item, busy, isLastAgent, animate, grouped }: { item: Ext
   const model = modelName(item.model);
   return (
     <View style={{ marginTop: grouped ? 10 : 18, gap: 10 }}>
-      <Markdown text={shown} />
+      <Markdown text={shown} streaming={!done} />
       {done && item.link && (
         <Pressable
           onPress={() => router.push(item.link!.href as never)}
@@ -667,6 +676,24 @@ function AgentMessage({ item, busy, isLastAgent, animate, grouped }: { item: Ext
           <Text variant="rowTitle">{item.link.label}</Text>
         </Pressable>
       )}
+      {done && item.web?.length ? (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          {item.web.map((w, i) => (
+            <Pressable
+              key={w.url}
+              onPress={() => void Linking.openURL(w.url).catch(() => undefined)}
+              accessibilityRole="link"
+              accessibilityLabel={`Source ${i + 1} : ${w.title}`}
+              style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 6, maxWidth: "100%", height: 32, paddingHorizontal: 12, borderRadius: 999, backgroundColor: color.surfaceSoft, opacity: pressed ? 0.7 : 1 })}
+            >
+              <Globe size={14} strokeWidth={1.8} color={color.inkMuted} />
+              <Text variant="caption" tone="ink" numberOfLines={1} style={{ maxWidth: 220 }}>
+                {domainOf(w.url)}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
       {done && sources ? (
         <Text variant="caption" tone="inkMuted" numberOfLines={2}>
           {sources}

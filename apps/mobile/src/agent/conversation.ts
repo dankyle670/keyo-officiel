@@ -19,13 +19,35 @@ export type FeedItem =
   /** `hist` : longueur de l'historique Claude avant ce message (pour régénérer ou modifier). */
   | { id: string; kind: "user"; text: string; attachments?: AttachmentRef[]; hist?: number }
   /** `feedback` : avis du propriétaire sur la réponse, relu par l'équipe côté serveur. */
-  | { id: string; kind: "agent"; text: string; link?: { label: string; href: string }; model?: string; feedback?: "up" | "down" }
+  | { id: string; kind: "agent"; text: string; link?: { label: string; href: string }; model?: string; feedback?: "up" | "down"; web?: WebSource[] }
   | { id: string; kind: "activity"; label: string; ok: boolean }
   | { id: string; kind: "proposal"; toolUseId: string; name: string; input: Record<string, unknown>; description: string; status: "pending" | "done" | "declined" | "failed"; result?: string }
   | { id: string; kind: "quota"; text: string; status: "pending" | "accepted" | "declined" }
   | { id: string; kind: "error"; text: string };
 
 /** Pièce jointe gardée sur le téléphone (sans son contenu encodé). */
+/** Page web citée par l'agent (recherche sur Internet). */
+export type WebSource = { title: string; url: string };
+
+/**
+ * Texte d'une réponse. Avec la recherche web, Claude découpe sa réponse en morceaux autour de chaque
+ * source citée : ces morceaux se recollent sans saut de ligne. Les sources citées sont gardées à part.
+ */
+export function replyOf(content: { type: string; [k: string]: unknown }[]) {
+  let text = "";
+  let prevCited = false;
+  const web: WebSource[] = [];
+  for (const b of content) {
+    if (b.type !== "text" || typeof b.text !== "string") continue;
+    const cites = Array.isArray(b.citations) ? (b.citations as { url?: string; title?: string }[]) : [];
+    if (text) text += cites.length || prevCited ? "" : "\n\n";
+    text += b.text;
+    prevCited = cites.length > 0;
+    for (const c of cites) if (c.url && !web.some((w) => w.url === c.url)) web.push({ url: c.url, title: c.title?.trim() || new URL(c.url).hostname });
+  }
+  return { text: text.replace(/\n{3,}/g, "\n\n"), web: web.slice(0, 8) };
+}
+
 export type AttachmentRef = { id: string; name: string; uri: string; kind: "image" | "pdf" };
 
 type ToolResult = { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean };
@@ -137,9 +159,9 @@ export function speak(text: string) {
   Speech.speak(clean, { language: "fr-FR", rate: 1.0 });
 }
 
-function sayAgent(text: string, link?: { label: string; href: string }, model?: string) {
+function sayAgent(text: string, link?: { label: string; href: string }, model?: string, web?: WebSource[]) {
   if (!text.trim()) return;
-  push({ id: id(), kind: "agent", text: text.trim(), link, model });
+  push({ id: id(), kind: "agent", text: text.trim(), link, model, web: web?.length ? web : undefined });
   if (getSettings().agentSpeaks) speak(text);
 }
 
@@ -191,8 +213,8 @@ async function runClaude(steps = 0): Promise<void> {
     sayAgent("Je ne peux pas traiter cette demande. Reformulez-la, ou passez par les écrans de l'app.");
     return;
   }
-  const text = res.content.filter((b): b is { type: "text"; text: string } => b.type === "text").map((b) => b.text).join("\n");
-  sayAgent(text, res.locked ? { label: "Mon abonnement", href: "/abonnement" } : undefined, res.model);
+  const reply = replyOf(res.content);
+  sayAgent(reply.text, res.locked ? { label: "Mon abonnement", href: "/abonnement" } : undefined, res.model, reply.web);
   if (res.stop_reason === "max_tokens") push({ id: id(), kind: "error", text: "Réponse interrompue : elle était trop longue." });
   // Recherches sur le web (outil serveur de Claude) : affichées comme les autres activités.
   for (const b of res.content) {
