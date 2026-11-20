@@ -168,14 +168,16 @@ export const AGENT_TOOLS = {
     kind: "write",
     risk: "high",
     label: "Modification d'un contrat",
-    description: "Modifie un contrat en cours : montant périodique (loyer, redevance, versement), caution, jour d'échéance ou date de fin. Les échéances futures non payées sont recalculées ; le passé ne change pas.",
+    description:
+      "Modifie un contrat en cours : montant périodique (loyer, redevance, versement), caution, jour d'échéance ou date de fin. Un nouveau montant s'applique aux échéances à partir de effectiveFrom (obligatoire avec amount) ; le passé ne change pas. Pour une hausse, demandez d'abord au propriétaire la date d'effet et rappelez qu'elle doit respecter le bail et être annoncée au locataire avec un préavis, AVANT de proposer la modification.",
     input: z.object({
       agreementId: z.string(),
       amount: minor.optional(),
+      effectiveFrom: date.optional().describe("Date à partir de laquelle le nouveau montant s'applique (échéances dues à cette date ou après)"),
       deposit: minor.optional(),
       dueDay: z.number().int().min(1).max(28).optional(),
       endDate: date.optional(),
-    }),
+    }).refine((v) => v.amount === undefined || v.effectiveFrom !== undefined, { message: "effectiveFrom est requis pour changer le montant", path: ["effectiveFrom"] }),
   },
   update_unit: {
     kind: "write",

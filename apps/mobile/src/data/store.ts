@@ -359,7 +359,7 @@ export const actions = {
    * Modifie un contrat. Les échéances du mois en cours et des mois suivants sans aucun encaissement
    * sont recalculées (montant, date) ; les mois passés et les sommes déjà reçues ne changent jamais.
    */
-  updateLease(agreementId: string, patch: { amount?: number; deposit?: number; dueDay?: number; endDate?: string | null }) {
+  updateLease(agreementId: string, patch: { amount?: number; effectiveFrom?: string; deposit?: number; dueDay?: number; endDate?: string | null }) {
     const now = today();
     setState((s) => {
       const g = s.agreements.find((a) => a.id === agreementId);
@@ -376,7 +376,8 @@ export const actions = {
         .map((it) => {
           if (it.agreementId !== agreementId || it.status === "PAID" || it.received.amount > 0 || it.dueDate.slice(0, 7) < now.slice(0, 7)) return it;
           const dueDate = dueDateFor(it.dueDate.slice(0, 7), next.dueDay);
-          const expected = next.periodicAmount;
+          // Nouveau montant seulement à partir de la date d'effet (préavis au locataire).
+          const expected = !patch.effectiveFrom || dueDate >= patch.effectiveFrom ? next.periodicAmount : it.expected;
           return { ...it, dueDate, expected, status: dueStatus(expected, it.received, dueDate, now) };
         })
         .filter((it) => it.agreementId !== agreementId || !next.endDate || it.dueDate <= next.endDate || it.status === "PAID");

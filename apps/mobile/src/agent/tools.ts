@@ -37,6 +37,8 @@ type Executor<N extends AgentToolName> = (input: AgentToolInput<N>) => Promise<T
 const ok = (result: unknown, summary: string): ToolOutcome => ({ ok: true, result, summary });
 const fail = (error: string): ToolOutcome => ({ ok: false, error });
 
+const frDay = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+
 /** Les messages ne partent pas encore réellement : aucun connecteur WhatsApp ou SMS n'est branché à l'app. */
 const SIMULATED_NOTE = "Envoi simulé : le message est consigné dans Keyo mais n'est PAS parti chez la personne ; il partira quand WhatsApp ou SMS sera connecté. Ne dites jamais qu'il a été envoyé ou reçu.";
 
@@ -364,11 +366,11 @@ const EXECUTORS: { [N in AgentToolName]: Executor<N> } = {
     return ok(r, `${input.firstName} invité`);
   },
 
-  update_lease({ agreementId, amount, deposit, dueDay, endDate }) {
+  update_lease({ agreementId, amount, effectiveFrom, deposit, dueDay, endDate }) {
     const g = getOwnerState().agreements.find((a) => a.id === agreementId);
     if (!g) return fail(`Contrat introuvable : ${agreementId}`);
-    actions.updateLease(agreementId, { amount, deposit, dueDay, endDate });
-    return ok({ done: true }, "Contrat modifié");
+    actions.updateLease(agreementId, { amount, effectiveFrom, deposit, dueDay, endDate });
+    return ok({ done: true, effectiveFrom }, effectiveFrom ? `Contrat modifié à partir du ${frDay(effectiveFrom)}` : "Contrat modifié");
   },
 
   update_unit({ unitId, label, askingRent, measure }) {
@@ -559,7 +561,7 @@ export function describeAction(name: string, input: Record<string, unknown>): st
     case "update_lease": {
       const g = s.agreements.find((x) => x.id === input.agreementId);
       const parts = [
-        typeof input.amount === "number" && `montant ${n(input.amount)}`,
+        typeof input.amount === "number" && `montant ${n(input.amount)}${typeof input.effectiveFrom === "string" ? ` à partir du ${frDay(input.effectiveFrom)}` : ""}`,
         typeof input.deposit === "number" && `caution ${n(input.deposit)}`,
         input.dueDay && `échéance le ${input.dueDay}`,
         input.endDate && `fin le ${input.endDate}`,
