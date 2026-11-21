@@ -88,6 +88,7 @@ export default function RootLayout() {
             <Stack.Screen name="agent/autonomie" />
             <Stack.Screen name="agent/connexions" />
             <Stack.Screen name="reglages/[section]" />
+            <Stack.Screen name="compte/supprimer" />
             <Stack.Screen name="aide" />
             <Stack.Screen name="mentions" />
           </Stack.Protected>

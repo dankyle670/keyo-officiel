@@ -197,6 +197,14 @@ export class PaymentAccountsService {
     return { op: c.change.op, accounts: next.map(view) };
   }
 
+  /** Suppression du compte : retire tous les comptes de paiement enregistrés (chiffrés). */
+  async forget(ownerId: string) {
+    const n = (await this.store.all(ownerId)).length;
+    await this.store.save(ownerId, []);
+    for (const [id, c] of this.challenges) if (c.ownerId === ownerId) this.challenges.delete(id);
+    return n;
+  }
+
   private async challenge(ownerId: string, rec: PaymentAccountRecord, change: ChangeRequest, to?: string): Promise<ChallengeView> {
     const id = newId("ch");
     const code = this.sms.simulated ? SIMULATED_CODE : String(randomInt(1_000_000)).padStart(6, "0");

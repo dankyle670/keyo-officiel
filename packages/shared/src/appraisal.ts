@@ -1,6 +1,7 @@
 import type { Agreement, Asset, AssetUnit, Document } from "./domain.ts";
 import type { Currency, Money } from "./money.ts";
 import { roundValue, valueAsset } from "./valuation.ts";
+import { AMENITIES, roomsOf, SURROUNDINGS, type RealEstateDetails, type RealEstateUnitDetails } from "./modules/real-estate.ts";
 
 /**
  * Expertise Keyo : l'entretien qu'un expert immobilier ou agricole mènerait, puis une estimation
@@ -16,6 +17,8 @@ export type AppraisalKind = "HOUSE" | "APARTMENT" | "BUILDING" | "PLANTATION";
 export function appraisalKind(a: Asset): AppraisalKind | null {
   if (a.type === "PLANTATION") return "PLANTATION";
   if (a.type === "REAL_ESTATE" && (a.details.kind === "HOUSE" || a.details.kind === "APARTMENT" || a.details.kind === "BUILDING")) return a.details.kind;
+  // Une cour commune s'estime comme un immeuble de rapport : par ses loyers et par comparaison.
+  if (a.type === "REAL_ESTATE" && a.details.kind === "COURTYARD") return "BUILDING";
   return null;
 }
 
@@ -142,8 +145,80 @@ function buildingQuestions(a: Asset, own: AssetUnit[], leases: Agreement[]): App
   ];
 }
 
-/** `agreements` et `today` servent à préremplir les loyers d'un immeuble. */
+/**
+ * Réponses déjà connues grâce à la fiche du bien (caractéristiques et composition des logements).
+ * L'expert ne les redemande pas : il les fait confirmer.
+ */
+export function ficheAnswers(a: Asset, units: AssetUnit[]): AppraisalAnswers {
+  if (a.type !== "REAL_ESTATE") return {};
+  const d = a.details as Partial<RealEstateDetails>;
+  const own = units.filter((u) => u.assetId === a.id).map((u) => u.details as Partial<RealEstateUnitDetails>);
+  const out: AppraisalAnswers = { tier: d.tier, age: d.builtAge, condition: d.condition, finish: d.finish, legal: d.legal, permit: d.permit, access: d.access, land: d.landM2, floors: d.floors };
+  const surface = own.reduce((n, u) => n + (u.surfaceM2 ?? 0), 0);
+  if (surface > 0 && own.every((u) => u.surfaceM2)) out.surface = surface;
+  const rooms = own.reduce((n, u) => n + (roomsOf(u) ?? 0), 0);
+  if (rooms > 0) out.rooms = rooms;
+  const equipment = new Set<string>(d.amenities ?? []);
+  if (own.some((u) => (u.acUnits ?? 0) > 0)) equipment.add("AC");
+  if (own.some((u) => u.balcony)) equipment.add("TERRACE");
+  if (own.length && own.every((u) => u.electricityMeter === "INDIVIDUAL")) equipment.add("METERS");
+  if (equipment.size) out.equipment = [...equipment];
+  if (d.surroundings?.length) out.surroundings = [...d.surroundings];
+  const floor = own.length === 1 ? own[0]!.floor : undefined;
+  if (floor !== undefined) out.floor = floor === 0 ? "GROUND" : floor <= 3 ? "LOW" : d.amenities?.includes("LIFT") ? "HIGH_LIFT" : "HIGH_NOLIFT";
+  return Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined && v !== null));
+}
+
+/**
+ * Inverse : ce que l'entretien d'expert apprend sur le bien, à reporter sur sa fiche (le logement
+ * aussi quand le bien n'en a qu'un). Les réponses passées ou inconnues ne changent rien.
+ */
+export function ficheFromAnswers(a: Asset, answers: AppraisalAnswers): { asset: Partial<RealEstateDetails>; unit: Partial<RealEstateUnitDetails> } {
+  if (a.type !== "REAL_ESTATE") return { asset: {}, unit: {} };
+  const str = (k: string, allowed: readonly string[]) => (typeof answers[k] === "string" && allowed.includes(answers[k] as string) ? (answers[k] as string) : undefined);
+  const pos = (k: string) => (typeof answers[k] === "number" && (answers[k] as number) > 0 ? (answers[k] as number) : undefined);
+  const arr = (k: string, allowed: readonly string[]) => (Array.isArray(answers[k]) ? (answers[k] as string[]).filter((x) => allowed.includes(x)) : undefined);
+  const asset = {
+    tier: str("tier", ["PRIME", "RESIDENTIAL", "POPULAR", "OUTSKIRTS"]),
+    builtAge: str("age", ["LT5", "5_15", "15_30", "GT30"]),
+    condition: str("condition", ["NEW", "GOOD", "WORKS", "HEAVY"]),
+    finish: str("finish", ["HIGH", "STANDARD", "BASIC"]),
+    legal: str("legal", ["TF", "ACD", "CUSTOM", "NONE"]),
+    permit: str("permit", ["YES", "PARTIAL", "NO"]),
+    access: str("access", ["PAVED", "DIRT", "HARD"]),
+    landM2: pos("land"),
+    floors: pos("floors") ? Math.round(pos("floors")!) : undefined,
+    amenities: arr("equipment", AMENITIES),
+    surroundings: arr("surroundings", SURROUNDINGS),
+  } as Partial<RealEstateDetails>;
+  const equipment = Array.isArray(answers.equipment) ? (answers.equipment as string[]) : [];
+  const unit: Partial<RealEstateUnitDetails> = {
+    surfaceM2: pos("surface"),
+    rooms: pos("rooms") ? Math.round(pos("rooms")!) : undefined,
+    balcony: equipment.includes("TERRACE") || undefined,
+    floor: answers.floor === "GROUND" ? 0 : undefined,
+  };
+  const clean = <T extends object>(o: T) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && !(Array.isArray(v) && v.length === 0))) as Partial<T>;
+  return { asset: clean(asset), unit: clean(unit) };
+}
+
+/** `agreements` et `today` servent à préremplir les loyers d'un immeuble ; la fiche, le reste. */
 export function appraisalQuestions(a: Asset, units: AssetUnit[], agreements: Agreement[] = [], today = new Date().toISOString().slice(0, 10)): AppraisalQuestion[] {
+  const known = ficheAnswers(a, units);
+  return baseQuestions(a, units, agreements, today).map((q) => {
+    if (q.prefill !== undefined) return q;
+    const v = known[q.id];
+    if (v === undefined || v === null) return q;
+    if (q.type === "choice") return typeof v === "string" && q.options?.some((o) => o.value === v) ? { ...q, prefill: v } : q;
+    if (q.type === "multi") {
+      const ok = Array.isArray(v) ? v.filter((x) => q.options?.some((o) => o.value === x)) : [];
+      return ok.length ? { ...q, prefill: ok } : q;
+    }
+    return typeof v === "number" ? { ...q, prefill: v } : q;
+  });
+}
+
+function baseQuestions(a: Asset, units: AssetUnit[], agreements: Agreement[] = [], today = new Date().toISOString().slice(0, 10)): AppraisalQuestion[] {
   const kind = appraisalKind(a);
   if (!kind) return [];
   const own = units.filter((u) => u.assetId === a.id);

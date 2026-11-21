@@ -4,10 +4,11 @@ import { router } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Building2, Camera, Car, ChevronLeft, ImagePlus, Sprout, Store, Tractor, X, type LucideIcon } from "lucide-react-native";
-import { ASSET_PROFILES, ASSET_TYPE_ORDER, cap, DETAILS_SCHEMA, GenericUnitDetails, type Asset, type AssetType, type AssetUnit, type Currency } from "@keyo/shared";
+import { ASSET_PROFILES, ASSET_TYPE_ORDER, cap, DETAILS_SCHEMA, UNIT_DETAILS_SCHEMA, type Asset, type AssetType, type AssetUnit, type Currency, type RealEstateKind } from "@keyo/shared";
 import { color, radius } from "@keyo/tokens";
 import { useUser } from "@/data/session";
 import { actions } from "@/data/store";
+import { CompositionFields, compositionSummary, PropertyFields, UnitCard, type CompositionDraft, type PropertyDraft } from "@/assets/RealEstateFields";
 import { Button, Chip, RoundButton, Text, TextField } from "@/ui";
 
 const TYPE_ICON: Record<AssetType, LucideIcon> = { REAL_ESTATE: Building2, PLANTATION: Sprout, FARM: Tractor, VEHICLE: Car, SHOP: Store };
@@ -27,8 +28,9 @@ const COUNTRIES = [
   { code: "FR", label: "France", city: "Paris", currency: "EUR" as Currency, center: { lat: 48.8566, lng: 2.3522 } },
 ];
 
-type UnitDraft = { label: string; measure: string; rent: string };
-const STEPS = 4;
+type UnitDraft = { label: string; measure: string; rent: string; charges: string; comp: CompositionDraft };
+type Step = "type" | "place" | "units" | "building" | "photos";
+const newUnit = (from?: UnitDraft): UnitDraft => ({ label: "", measure: from?.measure ?? "", rent: from?.rent ?? "", charges: from?.charges ?? "", comp: { ...(from?.comp ?? {}) } });
 const digits = (t: string) => t.replace(/\D/g, "");
 const grouped = (t: string) => (t ? Number(t).toLocaleString("fr-FR").replace(/\s/g, " ") : "");
 
@@ -36,7 +38,7 @@ const grouped = (t: string) => (t ? Number(t).toLocaleString("fr-FR").replace(/\
 export default function NewAsset() {
   const insets = useSafeAreaInsets();
   const user = useUser();
-  const [step, setStep] = useState(1);
+  const [stepIndex, setStepIndex] = useState(0);
   const [type, setType] = useState<AssetType>();
   const [kind, setKind] = useState<string>();
   const [name, setName] = useState("");
@@ -44,13 +46,21 @@ export default function NewAsset() {
   const [address, setAddress] = useState("");
   const [city, setCity] = useState(COUNTRIES[0]!.city);
   const [purchase, setPurchase] = useState("");
-  const [units, setUnits] = useState<UnitDraft[]>([{ label: "", measure: "", rent: "" }]);
+  const [units, setUnits] = useState<UnitDraft[]>([newUnit()]);
+  const [property, setProperty] = useState<PropertyDraft>({});
   const [photos, setPhotos] = useState<string[]>([]);
 
   const profile = ASSET_PROFILES[type ?? "REAL_ESTATE"];
+  const realEstate = type === "REAL_ESTATE";
+  const reKind = (kind ?? "HOUSE") as RealEstateKind;
+  // Immobilier : une étape de plus pour les caractéristiques du bâtiment (facultative).
+  const steps: Step[] = realEstate ? ["type", "place", "units", "building", "photos"] : ["type", "place", "units", "photos"];
+  const STEPS = steps.length;
+  const step = stepIndex + 1;
+  const current = steps[stepIndex]!;
   const multi = !!kind && !SINGLE_UNIT_KINDS.has(kind);
   const unitsOk = units.every((u) => Number(u.rent) > 0);
-  const canContinue = step === 1 ? !!type && !!kind && name.trim().length > 1 : step === 2 ? address.trim().length > 2 && city.trim().length > 1 : step === 3 ? unitsOk : true;
+  const canContinue = current === "type" ? !!type && !!kind && name.trim().length > 1 : current === "place" ? address.trim().length > 2 && city.trim().length > 1 : current === "units" ? unitsOk : true;
   const currencyLabel = country.currency === "XOF" ? "FCFA" : "€";
   // L'euro se saisit en euros, stocké en centimes (unité mineure).
   const toMinor = (v: string) => Number(v || 0) * (country.currency === "XOF" ? 1 : 100);
@@ -68,7 +78,7 @@ export default function NewAsset() {
     if (!kind || !type) return;
     const id = `a-${Date.now().toString(36)}`;
     // Les champs propres au type sont validés par le schéma de son module.
-    const details = (DETAILS_SCHEMA[type] ?? DETAILS_SCHEMA.REAL_ESTATE!).parse({ kind, purchasePrice: purchase ? toMinor(purchase) : undefined }) as Record<string, unknown>;
+    const details = (DETAILS_SCHEMA[type] ?? DETAILS_SCHEMA.REAL_ESTATE!).parse({ kind, purchasePrice: purchase ? toMinor(purchase) : undefined, ...(realEstate ? property : {}) }) as Record<string, unknown>;
     const key = profile.measure?.key;
     const asset: Asset = {
       id,
@@ -85,7 +95,11 @@ export default function NewAsset() {
       assetId: id,
       type: type === "REAL_ESTATE" ? "DWELLING" : type,
       label: u.label.trim() || (units.length === 1 ? profile.kinds[kind] ?? cap(profile.unit.one) : `${cap(profile.unit.one)} ${i + 1}`),
-      details: GenericUnitDetails.parse({ ...(key && Number(u.measure.replace(",", ".")) > 0 ? { [key]: key === "areaHa" || key === "surfaceM2" ? Number(u.measure.replace(",", ".")) : Math.round(Number(u.measure)) } : {}), askingRent: toMinor(u.rent) }),
+      details: UNIT_DETAILS_SCHEMA[type].parse({
+        ...(realEstate ? u.comp : key && Number(u.measure.replace(",", ".")) > 0 ? { [key]: key === "areaHa" || key === "surfaceM2" ? Number(u.measure.replace(",", ".")) : Math.round(Number(u.measure)) } : {}),
+        askingRent: toMinor(u.rent),
+        ...(realEstate && Number(u.charges) > 0 ? { charges: toMinor(u.charges) } : {}),
+      }),
     }));
     actions.addAsset({ asset, units: assetUnits, photos });
     router.replace(`/bien/${id}`);
@@ -93,10 +107,22 @@ export default function NewAsset() {
 
   const setUnit = (i: number, patch: Partial<UnitDraft>) => setUnits((list) => list.map((u, j) => (j === i ? { ...u, ...patch } : u)));
 
+  /** Loyer demandé et charges d'un logement. */
+  const rentFields = (u: UnitDraft, i: number) => (
+    <View style={{ flexDirection: "row", gap: 12 }}>
+      <View style={{ flex: 1 }}>
+        <TextField label={`Loyer mensuel (${currencyLabel})`} value={grouped(u.rent)} onChangeText={(t) => setUnit(i, { rent: digits(t) })} keyboardType="number-pad" placeholder={country.currency === "XOF" ? "150 000" : "850"} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <TextField label={`Charges (${currencyLabel})`} hint="Facultatif" value={grouped(u.charges)} onChangeText={(t) => setUnit(i, { charges: digits(t) })} keyboardType="number-pad" placeholder="0" />
+      </View>
+    </View>
+  );
+
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: color.surface }} behavior="padding">
       <ScrollView contentContainerStyle={{ paddingTop: insets.top + 12, paddingHorizontal: 24, paddingBottom: 140 }} keyboardShouldPersistTaps="handled">
-        <RoundButton icon={step > 1 ? ChevronLeft : X} label={step > 1 ? "Étape précédente" : "Fermer"} onPress={() => (step > 1 ? setStep(step - 1) : router.back())} />
+        <RoundButton icon={step > 1 ? ChevronLeft : X} label={step > 1 ? "Étape précédente" : "Fermer"} onPress={() => (step > 1 ? setStepIndex(stepIndex - 1) : router.back())} />
         <View style={{ flexDirection: "row", gap: 6, marginTop: 20 }}>
           {Array.from({ length: STEPS }, (_, i) => (
             <View key={i} style={{ flex: 1, height: 4, borderRadius: 4, backgroundColor: i < step ? color.mint : color.line }} />
@@ -106,7 +132,7 @@ export default function NewAsset() {
           Étape {step} sur {STEPS}
         </Text>
 
-        {step === 1 && (
+        {current === "type" && (
           <>
             <Text variant="screenTitle" style={{ marginTop: 6 }} accessibilityRole="header">
               Quel type de bien ?
@@ -122,6 +148,7 @@ export default function NewAsset() {
                       setType(t);
                       setKind(undefined);
                       setUnits((u) => u.slice(0, 1));
+                      setProperty({});
                     }}
                     accessibilityRole="radio"
                     accessibilityState={{ checked: active }}
@@ -175,7 +202,7 @@ export default function NewAsset() {
           </>
         )}
 
-        {step === 2 && (
+        {current === "place" && (
           <>
             <Text variant="screenTitle" style={{ marginTop: 6 }} accessibilityRole="header">
               Où se trouve-t-il ?
@@ -202,10 +229,11 @@ export default function NewAsset() {
               keyboardType="number-pad"
               hint="Sert à calculer la rentabilité. Il n'est visible que par vous."
             />
+            {realEstate && <PropertyFields kind={reKind} ci={country.code === "CI"} value={property} onChange={setProperty} only="location" />}
           </>
         )}
 
-        {step === 3 && (
+        {current === "units" && !realEstate && (
           <>
             <Text variant="screenTitle" style={{ marginTop: 6 }} accessibilityRole="header">
               {multi ? `${cap(profile.unit.many)} et ${profile.amount}s` : cap(profile.amount)}
@@ -249,13 +277,61 @@ export default function NewAsset() {
             ))}
             {multi && (
               <View style={{ marginTop: 16 }}>
-                <Button kind="soft" label={`Ajouter ${profile.unit.feminine ? "une" : "un"} ${profile.unit.one}`} onPress={() => setUnits((list) => [...list, { label: "", measure: "", rent: list[list.length - 1]?.rent ?? "" }])} />
+                <Button kind="soft" label={`Ajouter ${profile.unit.feminine ? "une" : "un"} ${profile.unit.one}`} onPress={() => setUnits((list) => [...list, newUnit(list[list.length - 1])])} />
               </View>
             )}
           </>
         )}
 
-        {step === 4 && (
+        {current === "units" && realEstate && (
+          <>
+            <Text variant="screenTitle" style={{ marginTop: 6 }} accessibilityRole="header">
+              {multi ? "Logements et loyers" : "Composition et loyer"}
+            </Text>
+            <Text variant="rowSubtitle" tone="inkMuted" style={{ marginTop: 6 }}>
+              Pièces, douches, toilettes : ces détails servent aux annonces et rendent l'estimation plus juste.
+            </Text>
+            {!multi ? (
+              <View style={{ marginTop: 8 }}>
+                <CompositionFields kind={reKind} value={units[0]!.comp} onChange={(comp) => setUnit(0, { comp })} />
+                {rentFields(units[0]!, 0)}
+              </View>
+            ) : (
+              <>
+                {units.map((u, i) => (
+                  <UnitCard
+                    key={i}
+                    title={u.label.trim() || `Logement ${i + 1}`}
+                    summary={[compositionSummary(u.comp), u.rent ? `${grouped(u.rent)} ${currencyLabel}` : ""].filter(Boolean).join(" · ") || "À compléter"}
+                    defaultOpen={i === units.length - 1}
+                    onRemove={units.length > 1 ? () => setUnits((list) => list.filter((_, j) => j !== i)) : undefined}
+                  >
+                    <TextField label="Nom" value={u.label} onChangeText={(t) => setUnit(i, { label: t })} placeholder={reKind === "COMMERCIAL" ? `Ex. Magasin ${i + 1}` : `Ex. Porte ${i + 1}, Studio RDC`} />
+                    <CompositionFields kind={reKind} value={u.comp} onChange={(comp) => setUnit(i, { comp })} />
+                    {rentFields(u, i)}
+                  </UnitCard>
+                ))}
+                <View style={{ marginTop: 16 }}>
+                  <Button kind="soft" label="Ajouter un logement identique" onPress={() => setUnits((list) => [...list, newUnit(list[list.length - 1])])} />
+                </View>
+              </>
+            )}
+          </>
+        )}
+
+        {current === "building" && (
+          <>
+            <Text variant="screenTitle" style={{ marginTop: 6 }} accessibilityRole="header">
+              {reKind === "APARTMENT" ? "L'immeuble et l'appartement" : "Le bâtiment"}
+            </Text>
+            <Text variant="rowSubtitle" tone="inkMuted" style={{ marginTop: 6 }}>
+              Facultatif. Chaque réponse rend l'estimation de la valeur plus précise ; vous pourrez compléter plus tard.
+            </Text>
+            <PropertyFields kind={reKind} ci={country.code === "CI"} value={property} onChange={setProperty} only="building" />
+          </>
+        )}
+
+        {current === "photos" && (
           <>
             <Text variant="screenTitle" style={{ marginTop: 6 }} accessibilityRole="header">
               Photos du bien
@@ -293,7 +369,7 @@ export default function NewAsset() {
         <Button
           label={step < STEPS ? "Continuer" : photos.length ? "Ajouter le bien" : "Ajouter sans photo"}
           disabled={!canContinue}
-          onPress={() => (step < STEPS ? setStep(step + 1) : submit())}
+          onPress={() => (step < STEPS ? setStepIndex(stepIndex + 1) : submit())}
         />
       </View>
     </KeyboardAvoidingView>

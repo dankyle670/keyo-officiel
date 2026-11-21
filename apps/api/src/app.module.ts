@@ -2,6 +2,10 @@ import Anthropic from "@anthropic-ai/sdk";
 import { Module } from "@nestjs/common";
 import { AgentController } from "./agent/agent.controller.ts";
 import { ExportController } from "./export/export.controller.ts";
+import { AccountController } from "./account/account.controller.ts";
+import { AccountService } from "./account/service.ts";
+import type { ConversationStore } from "./conversations/store.ts";
+import { SimulatedCodeSender } from "./payments/service.ts";
 import { AgentService, ANTHROPIC } from "./agent/agent.service.ts";
 import { AutonomousController } from "./autonomous/autonomous.controller.ts";
 import { ConnectorRegistry } from "./autonomous/connectors.ts";
@@ -26,7 +30,7 @@ import { PaymentAccountsService } from "./payments/service.ts";
 import { MemoryPaymentAccountStore, RedisPaymentAccountStore } from "./payments/store.ts";
 
 @Module({
-  controllers: [AgentController, AutonomousController, ConversationsController, PaymentAccountsController, BillingController, ExportController],
+  controllers: [AgentController, AutonomousController, ConversationsController, PaymentAccountsController, BillingController, ExportController, AccountController],
   providers: [
     AgentService,
     // Sans clé, l'agent répond en mode démo (côté app) : rien ne casse en développement.
@@ -77,6 +81,12 @@ import { MemoryPaymentAccountStore, RedisPaymentAccountStore } from "./payments/
     AutonomousScheduler,
     // Conversations du chat : Redis (persisté sur disque) si REDIS_URL, sinon mémoire.
     { provide: CONVERSATION_STORE, useFactory: () => (process.env.REDIS_URL ? new RedisConversationStore(new Redis(process.env.REDIS_URL)) : new MemoryConversationStore()) },
+    // Suppression du compte (code SMS simulé tant qu'aucun fournisseur n'est branché).
+    {
+      provide: AccountService,
+      inject: [CONVERSATION_STORE, PaymentAccountsService, BillingService, AGENT_STORE],
+      useFactory: (conversations: ConversationStore, payments: PaymentAccountsService, billing: BillingService, agents: AgentStore) => new AccountService({ sms: new SimulatedCodeSender(), conversations, payments, billing, agents }),
+    },
   ],
 })
 export class AppModule {}

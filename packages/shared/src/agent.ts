@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Currency } from "./money.ts";
 import { AssetType, DocumentKind, MissionKind, Urgency } from "./domain.ts";
 import { ASSET_PROFILES } from "./modules/catalog.ts";
+import { RealEstateDetails, RealEstateUnitDetails } from "./modules/real-estate.ts";
 import { AUTONOMOUS_ACTION_KEYS, AutonomyLevel } from "./autonomy.ts";
 
 /**
@@ -17,6 +18,17 @@ const minor = z
   .int()
   .nonnegative()
   .describe("Montant en entier, en unité mineure de la devise : FCFA (XOF) sans décimales, centimes pour EUR, CAD et USD (45,50 EUR = 4550)");
+
+/** Fiche immobilière : caractéristiques du bien (codes de l'expertise). */
+const features = RealEstateDetails.omit({ kind: true, purchasePrice: true })
+  .partial()
+  .describe(
+    "Caractéristiques du bien (immobilier), toutes facultatives : tier (PRIME, RESIDENTIAL, POPULAR, OUTSKIRTS), builtAge (LT5, 5_15, 15_30, GT30), condition (NEW, GOOD, WORKS, HEAVY), finish (HIGH, STANDARD, BASIC), legal (TF, ACD, CUSTOM, NONE), permit (YES, PARTIAL, NO), access (PAVED, DIRT, HARD), landM2, floors (niveaux, RDC compris), amenities, surroundings",
+  );
+/** Composition d'un logement. */
+const composition = RealEstateUnitDetails.omit({ askingRent: true, value: true, rooms: true })
+  .partial()
+  .describe("Composition d'un logement (immobilier) : bedrooms, livingRooms, bathrooms (douches), toilets, toiletsPlace (INSIDE, OUTSIDE, SHARED), kitchen (INSIDE, OUTSIDE, NONE), surfaceM2, floor (0 = RDC), furnished, acUnits, balcony, electricityMeter et waterMeter (INDIVIDUAL, SHARED), charges (unité mineure)");
 
 type ToolDef = { description: string; kind: "read" | "write"; risk?: "low" | "high"; input: z.ZodObject; label: string };
 
@@ -139,11 +151,13 @@ export const AGENT_TOOLS = {
         .array(
           z.object({
             label: z.string(),
-            measure: z.number().positive().optional().describe("Pièces (immobilier), hectares (plantation), têtes (élevage), m² (commerce)"),
+            measure: z.number().positive().optional().describe("Hectares (plantation), têtes (élevage), m² (commerce) ; pour l'immobilier, préférez composition"),
             askingRent: minor.optional(),
+            composition: composition.optional(),
           }),
         )
         .min(1),
+      features: features.optional(),
     }),
   },
   invite_occupant: {
@@ -183,8 +197,15 @@ export const AGENT_TOOLS = {
     kind: "write",
     risk: "low",
     label: "Modification d'une unité",
-    description: "Renomme une unité (logement, parcelle, véhicule…) ou change le montant demandé pour le prochain occupant.",
-    input: z.object({ unitId: z.string(), label: z.string().min(1).optional(), askingRent: minor.optional(), measure: z.number().positive().optional() }),
+    description: "Renomme une unité (logement, parcelle, véhicule…), change le montant demandé pour le prochain occupant ou complète la composition d'un logement (chambres, salons, douches, toilettes, surface, étage…).",
+    input: z.object({ unitId: z.string(), label: z.string().min(1).optional(), askingRent: minor.optional(), measure: z.number().positive().optional(), composition: composition.optional() }),
+  },
+  update_asset_sheet: {
+    kind: "write",
+    risk: "low",
+    label: "Mise à jour de la fiche d'un bien",
+    description: "Complète ou corrige les caractéristiques d'un bien immobilier (quartier, âge, état, finitions, titre de propriété, permis, accès, terrain, niveaux, équipements, environnement). Ne transmettez que les champs donnés par le propriétaire.",
+    input: z.object({ assetId: z.string(), features }),
   },
   set_asset_value: {
     kind: "write",

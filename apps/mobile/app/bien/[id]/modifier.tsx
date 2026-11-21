@@ -1,21 +1,29 @@
 import { useState } from "react";
-import { Alert, Pressable, View } from "react-native";
+import { Alert, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import { Trash2 } from "lucide-react-native";
-import { cap, formatShare, MINOR_UNITS, profileOf, sharesOf, type Holding } from "@keyo/shared";
-import { color, radius } from "@keyo/tokens";
+import { cap, formatShare, MINOR_UNITS, profileOf, sharesOf, type Holding, type RealEstateKind } from "@keyo/shared";
 import { today } from "@/data/period";
 import { familyMembers, latestAppraisal } from "@/data/selectors";
 import { useUser } from "@/data/session";
 import { actions, useOwnerState } from "@/data/store";
+import { CompositionFields, compositionSummary, PropertyFields, UnitCard, type CompositionDraft, type PropertyDraft } from "@/assets/RealEstateFields";
 import { Button, Chip, SectionTitle, Segmented, SubScreen, Text, TextField } from "@/ui";
 
-type UnitDraft = { id?: string; label: string; measure: string; rent: string; value: string; occupied: boolean; leaseId?: string };
+type UnitDraft = { id?: string; label: string; measure: string; rent: string; charges: string; value: string; comp: CompositionDraft; occupied: boolean; leaseId?: string };
+
+/** Champs de composition d'un logement (tout sauf les montants, gérés à part). */
+const compOf = (d: Record<string, unknown>): CompositionDraft => {
+  const { askingRent: _r, value: _v, charges: _c, ...rest } = d;
+  return rest as CompositionDraft;
+};
 
 const digits = (t: string) => t.replace(/\D/g, "");
 const grouped = (t: string) => (t ? Number(t).toLocaleString("fr-FR").replace(/\s/g, " ") : "");
 
-/** Modifier un bien : nom, sous-type, adresse, prix d'achat, unités et montants demandés. */
+/**
+ * Modifier un bien : tout ce qui a été saisi à la création reste modifiable (sous-type, nom, adresse,
+ * caractéristiques du bâtiment, composition et loyer de chaque logement, valeur, propriété).
+ */
 export default function EditAsset() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const state = useOwnerState((s) => s);
@@ -30,6 +38,11 @@ export default function EditAsset() {
   const [kind, setKind] = useState(String(asset?.details.kind ?? ""));
   const [address, setAddress] = useState(asset?.location.address ?? "");
   const [city, setCity] = useState(asset?.location.city ?? "");
+  const realEstate = asset?.type === "REAL_ESTATE";
+  const [property, setProperty] = useState<PropertyDraft>(() => {
+    const { kind: _k, purchasePrice: _p, ...rest } = (asset?.details ?? {}) as Record<string, unknown>;
+    return rest as PropertyDraft;
+  });
   const [purchase, setPurchase] = useState(typeof asset?.details.purchasePrice === "number" ? String(asset.details.purchasePrice / factor) : "");
   const [units, setUnits] = useState<UnitDraft[]>(() =>
     state.units
@@ -44,6 +57,8 @@ export default function EditAsset() {
           return typeof u.details.askingRent === "number" ? String(u.details.askingRent / factor) : "";
         })(),
         value: typeof u.details.value === "number" ? String(u.details.value / factor) : "",
+        charges: typeof u.details.charges === "number" ? String(u.details.charges / factor) : "",
+        comp: compOf(u.details),
         occupied: occupied.has(u.id),
         ...(() => {
           const g = currentLeases.find((x) => x.unitId === u.id);
@@ -96,13 +111,14 @@ export default function EditAsset() {
       name: name.trim(),
       address: address.trim(),
       city: city.trim(),
-      details: { kind, purchasePrice: purchase ? Number(purchase) * factor : undefined },
+      details: { ...(realEstate ? property : {}), kind, purchasePrice: purchase ? Number(purchase) * factor : undefined },
       value: value ? Number(value) * factor : null,
     });
     actions.setHolding(asset.id, holding, holders.map((h) => ({ holderId: h.id, sharePermille: permille(shares[h.id]) })));
     removed.forEach((uid) => actions.deleteUnit(uid));
     units.forEach((u) => {
-      const details = { ...measureValue(u.measure), askingRent: u.rent ? Number(u.rent) * factor : undefined, value: u.value ? Number(u.value) * factor : undefined };
+      const money = { askingRent: u.rent ? Number(u.rent) * factor : undefined, value: u.value ? Number(u.value) * factor : undefined };
+      const details = realEstate ? { ...u.comp, ...money, charges: u.charges ? Number(u.charges) * factor : undefined } : { ...measureValue(u.measure), ...money };
       if (u.id) actions.updateUnit(u.id, { label: u.label.trim(), details });
       else actions.addUnit(asset.id, u.label.trim(), details);
       // Logement occupé : le montant saisi est celui du contrat en cours.
@@ -133,6 +149,19 @@ export default function EditAsset() {
       <TextField label="Nom" value={name} onChangeText={setName} autoCapitalize="words" />
       <TextField label="Adresse ou lieu" value={address} onChangeText={setAddress} />
       <TextField label="Ville" value={city} onChangeText={setCity} />
+      {realEstate && (
+        <>
+          <SectionTitle>Situation</SectionTitle>
+          <PropertyFields kind={kind as RealEstateKind} ci={asset.location.country === "CI"} value={property} onChange={setProperty} only="location" />
+          <SectionTitle>{kind === "APARTMENT" ? "L'immeuble" : "Le bâtiment"}</SectionTitle>
+          <Text variant="rowSubtitle" tone="inkMuted" style={{ marginTop: 4 }}>
+            Chaque réponse rend l'estimation de la valeur plus précise.
+          </Text>
+          <PropertyFields kind={kind as RealEstateKind} ci={asset.location.country === "CI"} value={property} onChange={setProperty} only="building" />
+        </>
+      )}
+
+      <SectionTitle>Valeur</SectionTitle>
       <TextField label={`Prix d'achat (${currencyLabel}), facultatif`} value={grouped(purchase)} onChangeText={(t) => setPurchase(digits(t))} keyboardType="number-pad" hint="Sert au calcul de la rentabilité." />
 
       <TextField label={`Valeur estimée aujourd'hui (${currencyLabel}), facultatif`} value={grouped(value)} onChangeText={(t) => setValue(digits(t))} keyboardType="number-pad" hint="Sert au calcul du patrimoine. À défaut, le prix d'achat est utilisé." />
@@ -196,33 +225,49 @@ export default function EditAsset() {
       <Text variant="rowSubtitle" tone="inkMuted" style={{ marginTop: 4 }}>
         Pour {profile.unit.feminine ? "une" : "un"} {profile.unit.one} occupé{profile.unit.feminine ? "e" : ""}, le montant modifie le contrat en cours, dès ce mois-ci si rien n'a été payé. Pour {profile.unit.feminine ? "une" : "un"} {profile.unit.one} libre, c'est le montant proposé au prochain {profile.occupant.one}.
       </Text>
-      {units.map((u, i) => (
-        <View key={u.id ?? `new-${i}`} style={{ marginTop: 14, padding: 16, borderRadius: radius.card, backgroundColor: color.surfaceRaised }}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <Text variant="rowTitle">{u.occupied ? `${cap(profile.unit.one)} occupé${profile.unit.feminine ? "e" : ""}` : u.id ? `${cap(profile.unit.one)} libre` : `Nouve${profile.unit.feminine ? "lle" : "au"} ${profile.unit.one}`}</Text>
-            <Pressable onPress={() => remove(i)} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Retirer ${u.label || profile.unit.one}`}>
-              <Trash2 size={20} strokeWidth={1.8} color={u.occupied ? color.track : color.danger} />
-            </Pressable>
-          </View>
-          <TextField label={asset.type === "VEHICLE" ? "Modèle et immatriculation" : "Nom"} value={u.label} onChangeText={(t) => setUnit(i, { label: t })} />
-          <View style={{ flexDirection: "row", gap: 12 }}>
-            {profile.measure && (
-              <View style={{ width: 130 }}>
-                <TextField label={profile.measure.label} value={u.measure} onChangeText={(t) => setUnit(i, { measure: t.replace(/[^\d,]/g, "") })} keyboardType="decimal-pad" />
-              </View>
+      {units.map((u, i) => {
+        const state_ = u.occupied ? `occupé${profile.unit.feminine ? "e" : ""}` : u.id ? "libre" : "nouveau";
+        return (
+          <UnitCard
+            key={u.id ?? `new-${i}`}
+            title={u.label.trim() || `${cap(profile.unit.one)} ${i + 1}`}
+            summary={[cap(state_), realEstate ? compositionSummary(u.comp) : "", u.rent ? `${grouped(u.rent)} ${currencyLabel}` : ""].filter(Boolean).join(" · ")}
+            defaultOpen={units.length === 1 || !u.id}
+            onRemove={() => remove(i)}
+            removeMuted={u.occupied}
+          >
+            <TextField label={asset.type === "VEHICLE" ? "Modèle et immatriculation" : "Nom"} value={u.label} onChangeText={(t) => setUnit(i, { label: t })} />
+            {realEstate ? (
+              <CompositionFields kind={kind as RealEstateKind} value={u.comp} onChange={(comp) => setUnit(i, { comp })} />
+            ) : (
+              profile.measure && (
+                <View style={{ width: 130 }}>
+                  <TextField label={profile.measure.label} value={u.measure} onChangeText={(t) => setUnit(i, { measure: t.replace(/[^\d,]/g, "") })} keyboardType="decimal-pad" />
+                </View>
+              )
             )}
-            <View style={{ flex: 1 }}>
-              <TextField label={u.occupied ? `${cap(profile.amount)} en cours (${currencyLabel})` : `${cap(profile.amount)} demandé (${currencyLabel})`} value={grouped(u.rent)} onChangeText={(t) => setUnit(i, { rent: digits(t) })} keyboardType="number-pad" />
+            <View style={{ flexDirection: "row", gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <TextField label={u.occupied ? `${cap(profile.amount)} en cours (${currencyLabel})` : `${cap(profile.amount)} demandé (${currencyLabel})`} value={grouped(u.rent)} onChangeText={(t) => setUnit(i, { rent: digits(t) })} keyboardType="number-pad" />
+              </View>
+              {realEstate && (
+                <View style={{ flex: 1 }}>
+                  <TextField label={`Charges (${currencyLabel})`} hint="Facultatif" value={grouped(u.charges)} onChangeText={(t) => setUnit(i, { charges: digits(t) })} keyboardType="number-pad" />
+                </View>
+              )}
             </View>
-          </View>
-          <TextField label={`Valeur de ${profile.unit.feminine ? "la" : "ce"} ${profile.unit.one} (${currencyLabel}), facultatif`} value={grouped(u.value)} onChangeText={(t) => setUnit(i, { value: digits(t) })} keyboardType="number-pad" />
-        </View>
-      ))}
+            <TextField label={`Valeur de ${profile.unit.feminine ? "la" : "ce"} ${profile.unit.one} (${currencyLabel}), facultatif`} value={grouped(u.value)} onChangeText={(t) => setUnit(i, { value: digits(t) })} keyboardType="number-pad" />
+          </UnitCard>
+        );
+      })}
       <View style={{ marginTop: 16 }}>
         <Button
           kind="soft"
           label={`Ajouter ${profile.unit.feminine ? "une" : "un"} ${profile.unit.one}`}
-          onPress={() => setUnits((list) => [...list, { label: `${cap(profile.unit.one)} ${list.length + 1}`, measure: "", rent: list[list.length - 1]?.rent ?? "", value: "", occupied: false }])}
+          onPress={() => setUnits((list) => {
+            const last = list[list.length - 1];
+            return [...list, { label: `${cap(profile.unit.one)} ${list.length + 1}`, measure: last?.measure ?? "", rent: last?.rent ?? "", charges: last?.charges ?? "", value: "", comp: { ...(last?.comp ?? {}) }, occupied: false }];
+          })}
         />
       </View>
     </SubScreen>

@@ -23,6 +23,7 @@ import {
   type Party,
   type ScheduleItem,
   type Transaction,
+  ficheFromAnswers,
 } from "@keyo/shared";
 import { createDemoState, createEmptyState } from "./mock";
 import { KEYS, load, remove, save } from "./persist";
@@ -289,6 +290,19 @@ export const actions = {
   saveAppraisal(assetId: string, answers: AppraisalAnswers, result: AppraisalResult, by: "OWNER" | "AGENT", apply: boolean): string {
     const id = newId("ev");
     setState((s) => ({ ...s, appraisals: [...s.appraisals, { id, assetId, answers, result, createdAt: nowIso(), by, applied: false }] }));
+    // Ce que l'entretien d'expert a appris complète la fiche du bien (et du logement s'il est seul).
+    const asset = state.assets.find((a) => a.id === assetId);
+    if (asset) {
+      const fiche = ficheFromAnswers(asset, answers);
+      const own = state.units.filter((u) => u.assetId === assetId);
+      if (Object.keys(fiche.asset).length) actions.updateAsset(assetId, { details: fiche.asset });
+      if (own.length === 1 && Object.keys(fiche.unit).length) {
+        const u = own[0]!;
+        // La composition détaillée (chambres + salons) prime sur un nombre de pièces global.
+        const { rooms, ...rest } = fiche.unit;
+        actions.updateUnit(u.id, { details: { ...rest, ...(rooms && u.details.bedrooms === undefined && u.details.livingRooms === undefined ? { rooms } : {}) } });
+      }
+    }
     if (apply) actions.applyAppraisal(id);
     return id;
   },

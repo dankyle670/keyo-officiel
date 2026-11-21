@@ -197,6 +197,23 @@ export class BillingService {
     return this.view(ownerId);
   }
 
+  /**
+   * Suppression du compte : l'abonnement s'arrête tout de suite, plus aucun prélèvement ni relance ;
+   * les échéances non payées sont annulées. Les reçus déjà émis sont conservés (obligation comptable).
+   */
+  async closeAccount(ownerId: string) {
+    const s = await this.d.store.getSub(ownerId);
+    if (s) {
+      s.status = "CANCELED";
+      s.cancelAtPeriodEnd = true;
+      s.periodEnd = this.today();
+      await this.d.store.putSub(s);
+    }
+    for (const inv of await this.d.store.invoices(ownerId)) {
+      if (inv.status === "OPEN" || inv.status === "FAILED") await this.d.store.putInvoice({ ...inv, status: "VOID" });
+    }
+  }
+
   /** Payer tout de suite l'échéance impayée (après un échec, ou en fin d'essai). */
   async payNow(ownerId: string) {
     const s = await this.ensure(ownerId);

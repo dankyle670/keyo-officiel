@@ -39,6 +39,7 @@ export const TOOL_TIER: Record<AgentToolName, ModelTier> = {
   create_asset: "STANDARD",
   invite_occupant: "STANDARD",
   update_unit: "STANDARD",
+  update_asset_sheet: "STANDARD",
   decide_pending_action: "STANDARD",
   undo_autonomous_action: "STANDARD",
   set_autonomy: "STANDARD",

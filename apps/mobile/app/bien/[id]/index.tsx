@@ -2,8 +2,8 @@ import { useMemo, useState } from "react";
 import { Alert, Image, ScrollView, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ChevronLeft, DoorOpen, Ellipsis, FileText, Gem, MessageCircle, TrendingUp, UserPlus, Users } from "lucide-react-native";
-import { appraisalKind, cap, formatAmount, formatShare, money, profileOf } from "@keyo/shared";
+import { ChevronLeft, ClipboardList, DoorOpen, Ellipsis, FileText, Gem, MessageCircle, TrendingUp, UserPlus, Users } from "lucide-react-native";
+import { appraisalKind, cap, ficheCompleteness, layoutLabel, formatAmount, formatShare, money, profileOf } from "@keyo/shared";
 import { color, radius } from "@keyo/tokens";
 import { eventIcon } from "@/data/icons";
 import { buildMarkers } from "@/data/markers";
@@ -107,7 +107,12 @@ export default function AssetDetail() {
         </Text>
         <Text variant="body" tone="inkMuted" style={{ marginTop: 4 }}>
           {asset.location.address}, {asset.location.city}. {summary.units.length} {unitWord(summary.units.length)}
-          {measure && profile.measure ? `, ${String(measure).replace(".", ",")} ${profile.measure.suffix.replace("(s)", measure > 1 ? "s" : "")}` : ""}.
+          {asset.type === "REAL_ESTATE" && summary.units.length === 1 && layoutLabel(summary.units[0]!.details)
+            ? `, ${layoutLabel(summary.units[0]!.details)!.replace(/^./, (c) => c.toLowerCase())}`
+            : measure && profile.measure
+              ? `, ${String(measure).replace(".", ",")} ${profile.measure.suffix.replace("(s)", measure > 1 ? "s" : "")}`
+              : ""}
+          .
         </Text>
 
         <View style={{ flexDirection: "row", marginTop: 26, marginBottom: 6 }}>
@@ -127,7 +132,7 @@ export default function AssetDetail() {
                 divider={i > 0}
                 leading={<IconCircle icon={DoorOpen} bg="surfaceSoft" fg="inkMuted" />}
                 title={summary.units.length > 1 ? u.label : `${cap(profile.unit.one)} libre`}
-                subtitle={asking ? `Libre, ${profile.amount} proposé ${formatAmount(money(asking, asset.currency))}` : "Libre"}
+                subtitle={[summary.units.length > 1 && asset.type === "REAL_ESTATE" ? layoutLabel(u.details)?.split(" (")[0] : "", asking ? `libre, ${profile.amount} proposé ${formatAmount(money(asking, asset.currency))}` : "libre"].filter(Boolean).join(", ").replace(/^./, (c) => c.toUpperCase())}
                 trailing={<Status tone="info" label="Pourvoir" />}
                 onPress={() => setVacant(u.id)}
               />
@@ -171,9 +176,22 @@ export default function AssetDetail() {
         ))}
 
         <SectionTitle>Gestion</SectionTitle>
+        {asset.type === "REAL_ESTATE" && (
+          <ListRow
+            divider={false}
+            leading={<IconCircle icon={ClipboardList} />}
+            title="Fiche du bien"
+            subtitle={(() => {
+              const f = ficheCompleteness(asset, summary.units);
+              return f.done === f.total ? "Complète : l'estimation en tient compte" : `${f.done} informations sur ${f.total} renseignées`;
+            })()}
+            chevron
+            onPress={() => router.push({ pathname: "/bien/[id]/modifier", params: { id: asset.id } })}
+          />
+        )}
         <ListRow
-          divider={false}
           leading={<IconCircle icon={Gem} bg="mintTint" fg="mintDeep" />}
+          divider={asset.type === "REAL_ESTATE"}
           title="Évaluation"
           subtitle={!appraisalKind(asset) ? "Bientôt disponible pour ce type de bien" : data.appraisal ? `Expertise du ${fullDate(data.appraisal.createdAt.slice(0, 10))}` : "Faire estimer ce bien par Keyo"}
           trailing={data.appraisal ? <Amount value={data.appraisal.result.value} variant="rowTitle" /> : asset.value ? <Amount value={asset.value} variant="rowTitle" /> : undefined}

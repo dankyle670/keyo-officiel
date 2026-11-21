@@ -174,6 +174,9 @@ function Account() {
         <InfoRow title="Téléphone" value={user.phone} />
         <InfoRow title="Rôle" value="Propriétaire" />
       </SettingsGroup>
+      <SettingsGroup>
+        <ActionRow title="Supprimer mon compte" destructive onPress={() => router.push("/compte/supprimer")} />
+      </SettingsGroup>
     </>
   );
 }

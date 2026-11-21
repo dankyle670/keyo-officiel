@@ -95,6 +95,8 @@ export interface AgentStore {
   cancelMutations(actionId: string): number;
   connectors(ownerId: string): ConnectorLink[];
   putConnector(c: ConnectorLink): void;
+  /** Suppression du compte : efface tout ce qui concerne le propriétaire. */
+  forget(ownerId: string): void;
 }
 
 const now = () => new Date().toISOString();
@@ -107,6 +109,16 @@ export class MemoryAgentStore implements AgentStore {
   private messageList: OutboundMessage[] = [];
   private mutationList: AppMutation[] = [];
   private links: ConnectorLink[] = [];
+
+  forget(o: string) {
+    this.snapshots.delete(o);
+    this.policies.delete(o);
+    this.runList = this.runList.filter((x) => x.ownerId !== o);
+    this.actionList = this.actionList.filter((x) => x.ownerId !== o);
+    this.messageList = this.messageList.filter((x) => x.ownerId !== o);
+    this.mutationList = this.mutationList.filter((x) => x.ownerId !== o);
+    this.links = this.links.filter((x) => x.ownerId !== o);
+  }
 
   getSnapshot = (o: string) => this.snapshots.get(o);
   putSnapshot = (o: string, s: OwnerSnapshot) => void this.snapshots.set(o, s);

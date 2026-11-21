@@ -100,3 +100,33 @@ test("immeuble sans loyers connus : comparaison seule, permis et titre pris en c
   assert.ok(r.factors.some((f) => f.label.startsWith("Permis")));
   assert.ok(r.value.amount > 0);
 });
+
+test("la fiche du bien préremplit l'expertise, et l'expertise complète la fiche", async () => {
+  const { ficheAnswers, ficheFromAnswers } = await import("./appraisal.ts");
+  const a = asset({ details: { kind: "APARTMENT", tier: "PRIME", builtAge: "5_15", condition: "GOOD", finish: "STANDARD", legal: "ACD", access: "PAVED", amenities: ["GENERATOR", "LIFT"] } });
+  const u: AssetUnit = { id: "u1", assetId: "a1", type: "DWELLING", label: "Appartement", details: { bedrooms: 2, livingRooms: 1, bathrooms: 2, surfaceM2: 90, floor: 5, acUnits: 2, balcony: true, electricityMeter: "INDIVIDUAL" } };
+  assert.deepEqual(ficheAnswers(a, [u]), { tier: "PRIME", age: "5_15", condition: "GOOD", finish: "STANDARD", legal: "ACD", access: "PAVED", surface: 90, rooms: 3, equipment: ["GENERATOR", "LIFT", "AC", "TERRACE", "METERS"], floor: "HIGH_LIFT" });
+  const q = appraisalQuestions(a, [u]);
+  assert.equal(q.find((x) => x.id === "surface")?.prefill, 90);
+  assert.deepEqual(q.find((x) => x.id === "equipment")?.prefill, ["GENERATOR", "LIFT", "AC", "TERRACE"]);
+  // Fiche complète : l'estimation n'attend plus aucune réponse obligatoire.
+  const r = appraise({ ...ctx, units: [u], asset: a, answers: {} })!;
+  assert.deepEqual(r.missing, []);
+
+  const back = ficheFromAnswers(asset({}), { tier: "RESIDENTIAL", age: "GT30", land: 500, equipment: ["POOL", "AC", "TERRACE"], surface: 180, legal: null, surroundings: [] });
+  assert.deepEqual(back.asset, { tier: "RESIDENTIAL", builtAge: "GT30", landM2: 500, amenities: ["POOL"] });
+  assert.deepEqual(back.unit, { surfaceM2: 180, balcony: true });
+});
+
+test("cour commune estimée comme un immeuble de rapport", () => {
+  assert.equal(appraisalKind(asset({ details: { kind: "COURTYARD" } })), "BUILDING");
+});
+
+test("typologie à l'ivoirienne", async () => {
+  const { layoutLabel, roomsOf } = await import("./modules/real-estate.ts");
+  assert.equal(layoutLabel({ bedrooms: 0, livingRooms: 1, bathrooms: 1 }), "Studio (1 douche)");
+  assert.equal(layoutLabel({ bedrooms: 1, livingRooms: 1, bathrooms: 1, toilets: 1, toiletsPlace: "OUTSIDE" }), "Chambre-salon (1 douche, 1 toilette extérieure)");
+  assert.equal(layoutLabel({ bedrooms: 3, livingRooms: 1, bathrooms: 2, toilets: 2 }), "4 pièces (3 chambres, 1 salon, 2 douches, 2 toilettes)");
+  assert.equal(layoutLabel({ rooms: 3 }), "3 pièces");
+  assert.equal(roomsOf({ bedrooms: 2, livingRooms: 1, rooms: 5 }), 3);
+});

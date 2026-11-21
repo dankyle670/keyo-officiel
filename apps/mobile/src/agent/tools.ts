@@ -1,4 +1,4 @@
-import { receivingAccountFor, PAYMENT_ACCOUNT_STATUS_LABEL, capabilities, NEVER_DOES, AUTONOMY_LEVEL_LABEL, actionDef, isAutonomousAction, SPECIALIST_LABEL, AGENT_TOOLS, borrowingCapacity, PASSPORT_LEVEL_LABEL, appraisalKind, appraisalQuestions, appraise, AUDIT_AREA_LABEL, CONFIDENCE_LABEL, formatMoney, formatShare, isAgentTool, kindLabel, money, profileOf, valueAsset, type AgentToolInput, type AgentToolName, type Currency } from "@keyo/shared";
+import { layoutLabel, REAL_ESTATE_LABELS, RealEstateDetails, roomsOf, receivingAccountFor, PAYMENT_ACCOUNT_STATUS_LABEL, capabilities, NEVER_DOES, AUTONOMY_LEVEL_LABEL, actionDef, isAutonomousAction, SPECIALIST_LABEL, AGENT_TOOLS, borrowingCapacity, PASSPORT_LEVEL_LABEL, appraisalKind, appraisalQuestions, appraise, AUDIT_AREA_LABEL, CONFIDENCE_LABEL, formatMoney, formatShare, isAgentTool, kindLabel, money, profileOf, valueAsset, type AgentToolInput, type AgentToolName, type Currency } from "@keyo/shared";
 import { currentMonth, monthName, nowIso, today } from "@/data/period";
 import { passportOf, assetHolders, assetSummary, auditReport, familyAssets, familyHolders, formatPermille, isOpenEvent, latestAppraisal, monthSummary, partyName, portfolioValue, yearFinance } from "@/data/selectors";
 import { getSession, getSettings } from "@/data/session";
@@ -8,6 +8,32 @@ import { agentMode, postOps, type TurnContext } from "./api";
 import { getAttachment } from "./conversation";
 import { autonomousApi } from "@/autonomous/api";
 import { syncNow } from "@/autonomous/sync";
+
+
+/** Fiche du bien en clair, pour l'agent (libellés plutôt que codes). */
+function sheetOf(d: Record<string, unknown>): Record<string, string | string[]> | undefined {
+  const label = (group: keyof typeof REAL_ESTATE_LABELS, v: unknown) => (REAL_ESTATE_LABELS[group] as Record<string, string>)[String(v)] ?? String(v);
+  const out: Record<string, string | string[]> = {};
+  if (d.tier) out["Quartier"] = label("tier", d.tier);
+  if (d.builtAge) out["Construit il y a"] = label("builtAge", d.builtAge);
+  if (d.condition) out["État"] = label("condition", d.condition);
+  if (d.finish) out["Finitions"] = label("finish", d.finish);
+  if (d.legal) out["Document de propriété"] = label("legal", d.legal);
+  if (d.permit) out["Permis de construire"] = label("permit", d.permit);
+  if (d.access) out["Accès"] = label("access", d.access);
+  if (d.landM2) out["Terrain"] = `${d.landM2} m²`;
+  if (d.floors) out["Niveaux"] = String(d.floors);
+  if (Array.isArray(d.amenities) && d.amenities.length) out["Équipements"] = d.amenities.map((x) => label("amenities", x));
+  if (Array.isArray(d.surroundings) && d.surroundings.length) out["Environnement"] = d.surroundings.map((x) => label("surroundings", x));
+  return Object.keys(out).length ? out : undefined;
+}
+
+/** Composition d'un logement, sans les montants. */
+function compositionOf(d: Record<string, unknown>) {
+  const keys = ["bedrooms", "livingRooms", "bathrooms", "toilets", "toiletsPlace", "kitchen", "surfaceM2", "floor", "furnished", "acUnits", "balcony", "electricityMeter", "waterMeter"];
+  const out = Object.fromEntries(keys.filter((k) => d[k] !== undefined).map((k) => [k, d[k]]));
+  return Object.keys(out).length ? out : undefined;
+}
 
 /**
  * Exécution des outils de l'agent sur les données du téléphone. Chaque entrée est validée avec le
@@ -56,6 +82,8 @@ const EXECUTORS: { [N in AgentToolName]: Executor<N> } = {
         kind: kindLabel(a.type, a.details.kind),
         vocabulary: { unit: profileOf(a.type).unit.one, occupant: profileOf(a.type).occupant.one, amount: profileOf(a.type).amount },
         address: `${a.location.address}, ${a.location.city} (${a.location.country})`,
+        // Fiche du bien (immobilier) : ce que l'expertise reprend sans le redemander.
+        sheet: a.type === "REAL_ESTATE" ? sheetOf(a.details) : undefined,
         currency: a.currency,
         monthlyRent: formatMoney(sum.monthlyRent),
         grossYield: sum.grossYieldPermille ? formatPermille(sum.grossYieldPermille) : undefined,
@@ -64,6 +92,9 @@ const EXECUTORS: { [N in AgentToolName]: Executor<N> } = {
           return {
             unitId: u.id,
             label: u.label,
+            layout: a.type === "REAL_ESTATE" ? layoutLabel(u.details) : undefined,
+            composition: a.type === "REAL_ESTATE" ? compositionOf(u.details) : undefined,
+            askingRent: !lease && typeof u.details.askingRent === "number" ? formatMoney(money(u.details.askingRent, a.currency)) : undefined,
             occupied: !!lease,
             agreementId: lease?.id,
             occupantPartyId: lease?.partyId,
@@ -337,13 +368,14 @@ const EXECUTORS: { [N in AgentToolName]: Executor<N> } = {
         type: input.type,
         name: input.name,
         location: { address: input.address, city: input.city, country: input.country.toUpperCase(), lat: 5.35, lng: -3.98 },
-        details: { kind: input.kind },
+        details: input.type === "REAL_ESTATE" ? RealEstateDetails.parse({ kind: input.kind, ...(input.features ?? {}) }) : { kind: input.kind },
         currency: input.currency,
         createdAt: nowIso(),
       },
       units: input.units.map((u, i) => {
         const key = profileOf(input.type).measure?.key;
-        return { id: `${id}-u${i + 1}`, assetId: id, type: input.type, label: u.label, details: { ...(key && u.measure ? { [key]: u.measure } : {}), askingRent: u.askingRent } };
+        const comp = input.type === "REAL_ESTATE" && u.composition ? { ...u.composition, rooms: roomsOf(u.composition) } : {};
+        return { id: `${id}-u${i + 1}`, assetId: id, type: input.type, label: u.label, details: { ...(key && u.measure && input.type !== "REAL_ESTATE" ? { [key]: u.measure } : {}), ...(input.type === "REAL_ESTATE" && u.measure && !u.composition ? { rooms: Math.round(u.measure) } : {}), ...comp, askingRent: u.askingRent } };
       }),
       photos: [],
     });
@@ -374,13 +406,22 @@ const EXECUTORS: { [N in AgentToolName]: Executor<N> } = {
     return ok({ done: true, effectiveFrom }, effectiveFrom ? `Contrat modifié à partir du ${frDay(effectiveFrom)}` : "Contrat modifié");
   },
 
-  update_unit({ unitId, label, askingRent, measure }) {
+  update_unit({ unitId, label, askingRent, measure, composition }) {
     const s = getOwnerState();
     const u = s.units.find((x) => x.id === unitId);
     if (!u) return fail(`Unité introuvable : ${unitId}`);
     const key = profileOf(s.assets.find((a) => a.id === u.assetId)?.type ?? "REAL_ESTATE").measure?.key;
-    actions.updateUnit(unitId, { label, details: { ...(askingRent !== undefined ? { askingRent } : {}), ...(key && measure ? { [key]: measure } : {}) } });
-    return ok({ done: true }, `${label ?? u.label} modifié`);
+    const comp = composition ? { ...composition, rooms: roomsOf({ ...u.details, ...composition }) } : {};
+    actions.updateUnit(unitId, { label, details: { ...(askingRent !== undefined ? { askingRent } : {}), ...(key && measure ? { [key]: measure } : {}), ...comp } });
+    return ok({ done: true, layout: layoutLabel({ ...u.details, ...comp }) }, `${label ?? u.label} modifié`);
+  },
+
+  update_asset_sheet({ assetId, features }) {
+    const a = getOwnerState().assets.find((x) => x.id === assetId);
+    if (!a) return fail(`Bien introuvable : ${assetId}`);
+    if (a.type !== "REAL_ESTATE") return fail("La fiche détaillée concerne les biens immobiliers.");
+    actions.updateAsset(assetId, { details: Object.fromEntries(Object.entries(features).filter(([, v]) => v !== undefined)) });
+    return ok({ done: true, sheet: sheetOf({ ...a.details, ...features }) }, `Fiche de ${a.name} complétée`);
   },
 
   send_reminder({ agreementId, tone }) {
@@ -603,7 +644,12 @@ export function describeAction(name: string, input: Record<string, unknown>): st
     }
     case "update_unit": {
       const u = s.units.find((x) => x.id === input.unitId);
-      return `Modifier ${u?.label ?? "l'unité"}${input.label ? ` (nouveau nom : ${input.label})` : ""}${typeof input.askingRent === "number" ? `, montant demandé ${n(input.askingRent)}` : ""}.`;
+      const layout = input.composition ? layoutLabel({ ...(u?.details ?? {}), ...(input.composition as object) }) : undefined;
+      return `Modifier ${u?.label ?? "l'unité"}${input.label ? ` (nouveau nom : ${input.label})` : ""}${typeof input.askingRent === "number" ? `, montant demandé ${n(input.askingRent)}` : ""}${layout ? `, composition : ${layout.replace(/^./, (x) => x.toLowerCase())}` : ""}.`;
+    }
+    case "update_asset_sheet": {
+      const lines = Object.entries(sheetOf((input.features ?? {}) as Record<string, unknown>) ?? {}).map(([k, v]) => `${k.toLowerCase()} : ${Array.isArray(v) ? v.join(", ").toLowerCase() : String(v).toLowerCase()}`);
+      return `Compléter la fiche de ${a}${lines.length ? ` (${lines.join(" ; ")})` : ""}.`;
     }
     case "send_reminder": {
       const g = s.agreements.find((x) => x.id === input.agreementId);
