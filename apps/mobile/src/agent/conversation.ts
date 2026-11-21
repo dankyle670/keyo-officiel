@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import { AGENT_TOOLS, formatMoney, isAgentTool, needsConfirmation, type Money } from "@keyo/shared";
 import { KEYS, load, remove, save } from "@/data/persist";
 import { getSession, getSettings } from "@/data/session";
+import { DATA_AREAS, dataFingerprint, type DataArea } from "@/data/store";
 import { agentMode, AgentUnavailable, apiBase, postTurn, type ApiMessage } from "./api";
 import { toContentBlock, type Attachment } from "./attachments";
 import { speak, stopSpeaking } from "./voice";
@@ -97,6 +98,8 @@ export type Thread = {
   attachments: Record<string, AttachmentRef>;
   /** Connue du serveur mais pas encore téléchargée sur ce téléphone. */
   remote?: boolean;
+  /** Empreinte des données à la fin du dernier échange (voir dataFingerprint). */
+  seen?: Record<string, string>;
 };
 
 type State = Thread & {
@@ -118,7 +121,22 @@ let state: State = { ...blank(), archive: [], busy: false, mode: "unknown", offl
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 
-const threadOf = (s: State): Thread => ({ id: s.id, title: s.title, updatedAt: s.updatedAt, feed: s.feed.slice(-200), history: s.history, pending: s.pending, attachments: s.attachments });
+const threadOf = (s: State): Thread => ({ id: s.id, title: s.title, updatedAt: s.updatedAt, feed: s.feed.slice(-200), history: s.history, pending: s.pending, attachments: s.attachments, seen: s.seen });
+
+/**
+ * Données modifiées depuis le dernier échange de cette conversation. L'agent a lu les anciennes
+ * valeurs plus haut dans le fil : sans cette note, il répondrait avec elles.
+ */
+function staleNote(): string {
+  if (!state.seen || !state.history.length) return "";
+  const now = dataFingerprint();
+  const changed = (Object.keys(DATA_AREAS) as DataArea[]).filter((k) => state.seen![k] !== undefined && state.seen![k] !== now[k]);
+  if (!changed.length) return "";
+  return `\n\n[Note de l'app Keyo, pas du propriétaire : depuis votre dernière réponse, ${changed.map((k) => DATA_AREAS[k]).join(", ")} ${changed.length > 1 ? "ont" : "a"} été modifié${changed.length > 1 ? "s" : ""}. Les résultats d'outils plus haut dans la conversation sont périmés pour ces points : consultez à nouveau avant de répondre.]`;
+}
+
+/** Fin d'un échange : on retient l'état des données que l'agent connaît désormais. */
+const markSeen = () => set({ seen: dataFingerprint() });
 const persist = () => {
   save(KEYS.agent, { v: 2, active: threadOf(state), archive: state.archive });
   schedulePush();
@@ -259,7 +277,8 @@ async function runClaude(steps = 0): Promise<void> {
     await runClaude(steps + 1);
     return;
   }
-  if (res.stop_reason !== "tool_use") return;
+  // Réponse finale : l'agent connaît maintenant l'état des données (y compris ses propres modifications).
+  if (res.stop_reason !== "tool_use") return markSeen();
 
   const uses = res.content.filter((b): b is { type: "tool_use"; id: string; name: string; input: Record<string, unknown> } => b.type === "tool_use");
   set({ pending: { order: uses.map((u) => u.id), results: {} } });
@@ -338,7 +357,7 @@ async function guard(task: () => Promise<void>) {
 async function answer(text: string, files: Attachment[], refs: AttachmentRef[]) {
   const mode = await ensureMode();
   if (mode === "claude") {
-    const note = refs.length ? `\n\n[Pièces jointes : ${refs.map((r) => `${r.id} « ${r.name} » (${r.kind === "pdf" ? "PDF" : "photo"})`).join(", ")}]` : "";
+    const note = (refs.length ? `\n\n[Pièces jointes : ${refs.map((r) => `${r.id} « ${r.name} » (${r.kind === "pdf" ? "PDF" : "photo"})`).join(", ")}]` : "") + staleNote();
     const content = files.length ? [...files.map(toContentBlock), { type: "text", text: text + note }] : text + note;
     set({ history: [...state.history, { role: "user", content }] });
     await runClaude();

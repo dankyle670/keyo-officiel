@@ -118,6 +118,41 @@ const setState = (next: (s: OwnerState) => OwnerState) => {
   listeners.forEach((l) => l());
 };
 
+/**
+ * Empreinte des données par domaine, comparée par l'agent d'un message à l'autre : si le propriétaire
+ * a modifié quelque chose entre-temps (écran, autre conversation, agent autonome), l'agent est
+ * prévenu de relire au lieu de répondre avec les résultats d'outils d'avant.
+ */
+export const DATA_AREAS = {
+  biens: "les biens, leurs fiches et leurs logements",
+  contrats: "les occupants et les contrats",
+  paiements: "les loyers, encaissements et dépenses",
+  incidents: "les incidents, travaux et missions",
+  documents: "les documents",
+  valeur: "les valeurs, expertises et parts familiales",
+  comptes: "les comptes de paiement et l'abonnement",
+} as const;
+export type DataArea = keyof typeof DATA_AREAS;
+
+const digest = (v: unknown) => {
+  const t = JSON.stringify(v) ?? "";
+  let h = 5381;
+  for (let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0;
+  return `${t.length}.${(h >>> 0).toString(36)}`;
+};
+
+export function dataFingerprint(s: OwnerState = state): Record<DataArea, string> {
+  return {
+    biens: digest([s.assets.map(({ value: _v, ...a }) => a), s.units.map((u) => ({ ...u, details: { ...u.details, value: undefined } }))]),
+    contrats: digest([s.parties, s.agreements]),
+    paiements: digest([s.schedule, s.transactions]),
+    incidents: digest([s.events, s.maintenance, s.missions]),
+    documents: digest(s.documents.map((d) => [d.id, d.kind, d.label, d.assetId])),
+    valeur: digest([s.assets.map((a) => [a.id, a.value, a.holding]), s.units.map((u) => [u.id, u.details.value]), s.shares, s.appraisals.map((x) => [x.id, x.applied])]),
+    comptes: digest([s.paymentAccounts, s.subscription?.status, s.subscription?.plan]),
+  };
+}
+
 export function useOwnerState<T>(select: (s: OwnerState) => T): T {
   return useSyncExternalStore(
     (l) => {
